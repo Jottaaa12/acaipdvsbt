@@ -786,3 +786,11 @@ class ModernMainWindow(QMainWindow):
     def logout(self):
         """Realiza logout"""
         self.logout_requested.emit()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_F11:
+            if self.isFullScreen():
+                self.showMaximized()
+            else:
+                self.showFullScreen()
+        super().keyPressEvent(event)

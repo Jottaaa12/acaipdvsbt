@@ -33,6 +33,25 @@ def run_migration():
             else:
                 raise
 
+        # --- Nova Tabela: sale_payments ---
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sale_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sale_id INTEGER NOT NULL,
+                    method TEXT NOT NULL,
+                    amount INTEGER NOT NULL,
+                    FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE
+                )
+            ''')
+            print("Tabela 'sale_payments' criada ou já existente.")
+            # Adicionar índice para melhorar a performance de buscas por sale_id
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments (sale_id);')
+            print("Índice para 'sale_payments.sale_id' criado ou já existente.")
+        except sqlite3.Error as e:
+            print(f"Erro ao criar a tabela 'sale_payments': {e}")
+            raise # Levanta o erro para abortar a transação
+
         conn.commit()
         print("Migração do banco de dados concluída com sucesso.")
 

@@ -78,7 +78,7 @@ class PDVApplication:
         # Cria e exibe a janela principal
         self.main_window = MainWindow(self.current_user)
         self.main_window.logout_requested.connect(self.on_logout_requested)
-        self.main_window.show()
+        self.main_window.showMaximized()
         
         # Fecha o dialog de login
         if self.login_dialog:
