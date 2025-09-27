@@ -8,7 +8,7 @@ seguindo as especificações do projeto de refatoração.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QGroupBox, QGridLayout,
-    QFrame, QSplitter, QTabWidget, QDateEdit, QComboBox, QInputDialog, QTextEdit
+    QFrame, QSplitter, QTabWidget, QDateEdit, QComboBox, QInputDialog, QTextEdit, QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer, QDate
 from PyQt6.QtGui import QFont, QColor
