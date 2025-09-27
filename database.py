@@ -953,7 +953,8 @@ def register_sale_with_user(total_amount, payment_method, items, user_id=None, c
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        total_amount_cents = to_cents(total_amount)
+        # Garante que o valor final seja um inteiro
+        total_amount_cents = int(to_cents(total_amount))
         cursor.execute('''
             INSERT INTO sales (total_amount, payment_method, user_id, cash_session_id, training_mode) 
             VALUES (?, ?, ?, ?, ?)
@@ -962,12 +963,15 @@ def register_sale_with_user(total_amount, payment_method, items, user_id=None, c
         sale_id = cursor.lastrowid
         
         for item in items:
-            unit_price_cents = to_cents(item['unit_price'])
-            total_price_cents = to_cents(item['total_price'])
+            # Garante que os valores de preço também sejam inteiros
+            unit_price_cents = int(to_cents(item['unit_price']))
+            total_price_cents = int(to_cents(item['total_price']))
+            quantity_float = float(item['quantity']) # Correção anterior mantida
+
             cursor.execute('''
                 INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price) 
                 VALUES (?, ?, ?, ?, ?)
-            ''', (sale_id, item['id'], item['quantity'], unit_price_cents, total_price_cents))
+            ''', (sale_id, item['id'], quantity_float, unit_price_cents, total_price_cents))
             
             # Só atualiza estoque se não for modo treinamento e o item for vendido por unidade.
             if not training_mode and item.get('sale_type') == 'unit':
@@ -976,7 +980,7 @@ def register_sale_with_user(total_amount, payment_method, items, user_id=None, c
                 if stock_check and stock_check[0] < item['quantity']:
                     raise sqlite3.Error(f"Estoque insuficiente para o produto: {item['description']}")
                 
-                cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (item['quantity'], item['id']))
+                cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (float(item['quantity']), item['id']))
         
         conn.commit()
         

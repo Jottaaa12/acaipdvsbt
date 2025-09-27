@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QToolButton, QPushButton, QGridLayout, QScrollArea, 
-    QDialog, QFrame, QLineEdit, QComboBox, QMessageBox
+    QDialog, QFrame, QLineEdit, QComboBox, QMessageBox, QTabWidget
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
@@ -93,8 +93,7 @@ class SettingsPage(QWidget):
         # Itens de configuração
         settings_items = [
             ("establishment", "Estabelecimento", IconTheme.DASHBOARD, self.open_establishment_settings),
-            ("scale", "Balança", IconTheme.SCALE, self.open_scale_settings),
-            ("printer", "Impressora", IconTheme.PRINTER, self.open_printer_settings),
+            ("hardware", "Hardware", IconTheme.SETTINGS, self.open_hardware_settings),
             ("product_groups", "Grupos de Produtos", IconTheme.PRODUCTS, self.open_group_management),
             ("payment_methods", "Formas de Pagamento", IconTheme.SALES, self.open_payment_method_management),
             ("shortcuts", "Atalhos Rápidos", IconTheme.SALES, self.open_shortcut_management),
@@ -158,13 +157,9 @@ class SettingsPage(QWidget):
         widget = self.create_store_config_widget()
         self._create_modal_dialog("Configurações do Estabelecimento", widget)
 
-    def open_scale_settings(self):
-        widget = self.create_scale_config_widget()
-        self._create_modal_dialog("Configurações da Balança", widget)
-
-    def open_printer_settings(self):
-        widget = self.create_printer_config_widget()
-        self._create_modal_dialog("Configurações da Impressora", widget)
+    def open_hardware_settings(self):
+        widget = self.create_hardware_config_widget()
+        self._create_modal_dialog("Configurações de Hardware", widget)
 
     def open_group_management(self):
         widget = GroupManagementWidget()
@@ -179,6 +174,43 @@ class SettingsPage(QWidget):
         self._create_modal_dialog("Gerenciar Usuários", widget)
 
     # --- Métodos para criar os widgets de configuração (reutilizados) ---
+
+    def create_hardware_config_widget(self):
+        hardware_widget = QWidget()
+        main_layout = QVBoxLayout(hardware_widget)
+        
+        tab_widget = QTabWidget()
+        main_layout.addWidget(tab_widget)
+
+        # Abas
+        general_tab = self.create_general_hardware_tab()
+        scale_tab = self.create_scale_config_widget()
+        printer_tab = self.create_printer_config_widget()
+
+        tab_widget.addTab(general_tab, "Geral")
+        tab_widget.addTab(scale_tab, "Balança")
+        tab_widget.addTab(printer_tab, "Impressora")
+
+        save_button = QPushButton("Salvar Todas as Configurações de Hardware")
+        save_button.clicked.connect(self.save_all_hardware_config)
+        main_layout.addWidget(save_button)
+
+        self.load_hardware_config_to_ui()
+        return hardware_widget
+
+    def create_general_hardware_tab(self):
+        general_tab = QWidget()
+        layout = QGridLayout(general_tab)
+        layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.hardware_mode_combo = QComboBox()
+        self.hardware_mode_combo.addItems(["Modo de Teste (Simulado)", "Modo de Produção (Real)"])
+
+        layout.addWidget(QLabel("Modo de Operação:"), 0, 0)
+        layout.addWidget(self.hardware_mode_combo, 0, 1)
+        
+        return general_tab
 
     def create_store_config_widget(self):
         store_group = QWidget()
@@ -223,11 +255,6 @@ class SettingsPage(QWidget):
         layout.addWidget(QLabel("Product ID (Hex):"), 3, 0)
         layout.addWidget(self.printer_product_id_input, 3, 1)
 
-        save_button = QPushButton("Salvar Configurações")
-        save_button.clicked.connect(self.save_printer_config)
-        layout.addWidget(save_button, 4, 0, 1, 2)
-
-        self.load_printer_config_to_ui()
         return printer_group
 
     def create_scale_config_widget(self):
@@ -256,16 +283,11 @@ class SettingsPage(QWidget):
         scale_layout.addWidget(QLabel("Stop Bits:"), 5, 0)
         scale_layout.addWidget(self.scale_stopbits_combo, 5, 1)
         
-        save_button = QPushButton("Salvar Configurações")
-        test_button = QPushButton("Testar Conexão")
-        
-        scale_layout.addWidget(save_button, 6, 0, 1, 2)
+        test_button = QPushButton("Testar Conexão com a Balança")
         scale_layout.addWidget(test_button, 7, 0, 1, 2)
         
-        save_button.clicked.connect(self.save_scale_config)
         test_button.clicked.connect(self.test_scale_connection)
         
-        self.load_scale_config_to_ui()
         return scale_group
 
     # --- Métodos de salvar/carregar (reutilizados e adaptados) ---
@@ -280,6 +302,66 @@ class SettingsPage(QWidget):
     def save_config(self, config):
         with open('config.json', 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4)
+
+    def load_hardware_config_to_ui(self):
+        config = self.load_config()
+        
+        # Geral
+        hardware_mode = config.get('hardware_mode', 'test')
+        self.hardware_mode_combo.setCurrentIndex(1 if hardware_mode == 'production' else 0)
+
+        # Balança
+        scale_config = config.get('scale', {})
+        self.scale_port_input.setText(scale_config.get('port', 'COM3'))
+        self.scale_baud_input.setText(str(scale_config.get('baudrate', 9600)))
+        self.scale_bytesize_combo.setCurrentText(str(scale_config.get('bytesize', 8)))
+        parity_map = {"N": "N (None)", "E": "E (Even)", "O": "O (Odd)"}
+        self.scale_parity_combo.setCurrentText(parity_map.get(scale_config.get('parity', 'N')))
+        self.scale_stopbits_combo.setCurrentText(str(scale_config.get('stopbits', 1)))
+
+        # Impressora
+        printer_config = config.get('printer', {})
+        self.printer_vendor_id_input.setText(printer_config.get('vendor_id', ''))
+        self.printer_product_id_input.setText(printer_config.get('product_id', ''))
+
+    def save_all_hardware_config(self):
+        config = self.load_config()
+        
+        # Geral
+        config['hardware_mode'] = 'production' if self.hardware_mode_combo.currentIndex() == 1 else 'test'
+
+        # Balança
+        parity_map = {"N (None)": "N", "E (Even)": "E", "O (Odd)": "O"}
+        try:
+            scale_config = {
+                "port": self.scale_port_input.text(),
+                "baudrate": int(self.scale_baud_input.text()),
+                "bytesize": int(self.scale_bytesize_combo.currentText()),
+                "parity": parity_map.get(self.scale_parity_combo.currentText(), "N"),
+                "stopbits": int(self.scale_stopbits_combo.currentText())
+            }
+            config['scale'] = scale_config
+        except ValueError:
+            QMessageBox.warning(self, "Erro de Formato", "As configurações da balança (Baudrate, etc.) contêm valores inválidos.")
+            return
+
+        # Impressora
+        vendor_id_str = self.printer_vendor_id_input.text().strip()
+        product_id_str = self.printer_product_id_input.text().strip()
+        try:
+            if vendor_id_str: int(vendor_id_str, 16)
+            if product_id_str: int(product_id_str, 16)
+            config['printer'] = {
+                "vendor_id": vendor_id_str,
+                "product_id": product_id_str
+            }
+        except ValueError:
+            QMessageBox.warning(self, "Erro de Formato", "Vendor ID e Product ID da impressora devem ser valores hexadecimais válidos (ex: 0x04b8).")
+            return
+
+        self.save_config(config)
+        QMessageBox.information(self, "Sucesso", "Configurações de hardware salvas com sucesso! Reinicie o aplicativo para que todas as alterações entrem em vigor.")
+
 
     def load_store_config_to_ui(self):
         store_config = self.load_config().get('store', {})
@@ -299,75 +381,20 @@ class SettingsPage(QWidget):
         self.save_config(config)
         QMessageBox.information(self, "Sucesso", "Informações do estabelecimento salvas!")
 
-    def load_printer_config_to_ui(self):
-        printer_config = self.load_config().get('printer', {})
-        self.printer_vendor_id_input.setText(printer_config.get('vendor_id', ''))
-        self.printer_product_id_input.setText(printer_config.get('product_id', ''))
-
-    def save_printer_config(self):
-        config = self.load_config()
-        vendor_id_str = self.printer_vendor_id_input.text().strip()
-        product_id_str = self.printer_product_id_input.text().strip()
-        config['printer'] = {
-            "vendor_id": vendor_id_str,
-            "product_id": product_id_str
-        }
-        self.save_config(config)
-        try:
-            vendor_id = int(vendor_id_str, 16) if vendor_id_str else None
-            product_id = int(product_id_str, 16) if product_id_str else None
-            self.printer_handler.reconfigure(vendor_id=vendor_id, product_id=product_id)
-            QMessageBox.information(self, "Sucesso", "Configurações da impressora salvas!")
-        except ValueError:
-            QMessageBox.warning(self, "Erro", "Vendor ID e Product ID devem ser hexadecimais.")
-
-    def load_scale_config_to_ui(self):
-        scale_config = self.load_config().get('scale', {})
-        self.scale_port_input.setText(scale_config.get('port', 'COM3'))
-        self.scale_baud_input.setText(str(scale_config.get('baudrate', 9600)))
-        self.scale_bytesize_combo.setCurrentText(str(scale_config.get('bytesize', 8)))
-        parity_map = {"N": "N (None)", "E": "E (Even)", "O": "O (Odd)"}
-        self.scale_parity_combo.setCurrentText(parity_map.get(scale_config.get('parity', 'N')))
-        self.scale_stopbits_combo.setCurrentText(str(scale_config.get('stopbits', 1)))
-
-    def save_scale_config(self):
-        config = self.load_config()
-        parity_map = {"N (None)": "N", "E (Even)": "E", "O (Odd)": "O"}
-        try:
-            scale_config = {
-                "port": self.scale_port_input.text(),
-                "baudrate": int(self.scale_baud_input.text()),
-                "bytesize": int(self.scale_bytesize_combo.currentText()),
-                "parity": parity_map.get(self.scale_parity_combo.currentText(), "N"),
-                "stopbits": int(self.scale_stopbits_combo.currentText())
-            }
-            config['scale'] = scale_config
-            self.save_config(config)
-            self.scale_handler.reconfigure(**scale_config)
-            QMessageBox.information(self, "Sucesso", "Configurações da balança salvas!")
-        except ValueError:
-            QMessageBox.warning(self, "Erro", "Baudrate, Bytesize e Stopbits devem ser números.")
-
     def test_scale_connection(self):
-        # Salva as configurações atuais antes de testar
-        try:
-            self.save_scale_config() 
-        except ValueError:
-            # save_scale_config já mostra um QMessageBox, então só retornamos
-            return
+        # Salva as configurações da UI no config.json. A própria função já lida com pop-ups de erro.
+        self.save_all_hardware_config()
 
-        # Tenta conectar
-        success, message = self.scale_handler.connect()
-        if not success:
-            QMessageBox.critical(self, "Falha na Conexão", message)
-            return
-        
-        # Se conectou, tenta ler o peso
-        QMessageBox.information(self, "Conexão Bem-sucedida", "Conexão com a balança estabelecida. Tentando ler o peso...")
-        success, data = self.scale_handler.get_weight()
-        if success:
-            weight = data
-            QMessageBox.information(self, "Leitura Concluída", f"Peso lido com sucesso: {weight:.3f} kg")
-        else:
-            error_message = data
-            QMessageBox.warning(self, "Erro de Leitura", error_message)
+        # Recarrega a configuração para passar ao handler
+        config = self.load_config()
+        hardware_mode = config.get('hardware_mode', 'test')
+        scale_config = config.get('scale', {})
+
+        # Reconfigura o handler. Ele tentará se reconectar em segundo plano.
+        self.scale_handler.reconfigure(mode=hardware_mode, **scale_config)
+
+        # Informa o usuário sobre a ação
+        QMessageBox.information(self, "Configuração Aplicada", 
+                                "As novas configurações da balança foram aplicadas.\n\n" 
+                                "O sistema tentará se reconectar em segundo plano. "
+                                "Verifique o status no Dashboard.")

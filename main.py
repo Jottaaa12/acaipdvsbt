@@ -9,8 +9,8 @@ import database as db
 import updater
 
 class PDVApplication:
-    def __init__(self):
-        self.app = QApplication(sys.argv)
+    def __init__(self, app):
+        self.app = app
         self.current_user = None
         self.main_window = None
         self.login_dialog = None
@@ -112,12 +112,21 @@ class PDVApplication:
 
 def main():
     """Função principal da aplicação."""
+    # A QApplication deve ser criada ANTES de qualquer widget, incluindo QMessageBoxes do updater.
+    app = QApplication(sys.argv)
+
     if updater.check_for_updates(__version__):
-        sys.exit(0)
+        # A verificação de atualização pode ter fechado a app, então verificamos de novo.
+        # Se o updater decidir sair, o código abaixo não será executado.
+        pass
+
     try:
-        pdv_app = PDVApplication()
+        pdv_app = PDVApplication(app)
         sys.exit(pdv_app.run())
     except Exception as e:
+        # Garante que a app exista para mostrar o erro
+        if 'pdv_app' not in locals() or not pdv_app.app:
+            QApplication(sys.argv) # Cria uma instância de emergência
         QMessageBox.critical(None, "Erro Fatal", 
                            f"Erro inesperado na aplicação:\n{str(e)}")
         sys.exit(1)

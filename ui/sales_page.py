@@ -23,8 +23,28 @@ class SalesPage(QWidget):
         self.scale_handler = scale_handler
         self.printer_handler = printer_handler
         self.current_sale_items = []
+        self.last_known_weight = 0.0
+        
+        # Conectar ao sinal de atualização de peso da balança
+        self.scale_handler.weight_updated.connect(self._on_weight_updated)
+        self.scale_handler.error_occurred.connect(self._on_scale_error)
 
         self.setup_ui()
+
+    def _on_weight_updated(self, weight):
+        """Slot para receber o peso da balança e atualizar a UI."""
+        self.last_known_weight = weight
+        if weight > 0:
+            self.weight_label.setText(f"{weight:.3f} kg")
+        else:
+            self.weight_label.setText("0.000 kg")
+
+    def _on_scale_error(self, error_message):
+        """Slot para receber erros da balança."""
+        self.last_known_weight = 0.0
+        self.weight_label.setText("Erro kg")
+        # Opcional: Logar o erro ou mostrar um status mais discreto
+        print(f"SalesPage Scale Error: {error_message}")
 
     def setup_ui(self):
         # Layout principal vertical
@@ -167,18 +187,10 @@ class SalesPage(QWidget):
             self.dynamic_shortcuts_layout.addWidget(button)
 
     def get_weight_from_scale(self):
-        """Lê o peso da balança e apenas atualiza o label."""
-        success, data = self.scale_handler.get_weight()
-        if success:
-            weight = data
-            if weight > 0:
-                self.weight_label.setText(f"{weight:.3f} kg")
-            else:
-                self.weight_label.setText("0.000 kg")
-        else:
-            error_message = data
-            self.weight_label.setText("Erro kg")
-            QMessageBox.warning(self, "Erro Balança", error_message)
+        """Atalho para adicionar um produto pesado.
+        Usa o código de produto no campo de input e o peso atual da balança.
+        """
+        self.add_product_to_sale()
 
     def add_product_to_sale(self, weight_from_scale=None):
         if not self.is_cash_session_open(): return
@@ -197,11 +209,8 @@ class SalesPage(QWidget):
         if product_data['sale_type'] == 'weight':
             # Se um peso não foi passado diretamente, busca da balança
             if weight_from_scale is None:
-                success, data = self.scale_handler.get_weight()
-                if not success:
-                    QMessageBox.warning(self, "Erro de Balança", data)
-                    return
-                weight_from_scale = data
+                # Usa o último peso conhecido, que é atualizado pelo sinal
+                weight_from_scale = self.last_known_weight
 
             quantity = Decimal(str(weight_from_scale))
 
@@ -371,18 +380,15 @@ class SalesPage(QWidget):
         self.update_sale_display()
 
     def quick_kg_sale(self):
-        weight_text = self.weight_label.text().replace(' kg', '').replace(',', '.')
         try:
-            weight = Decimal(weight_text)
+            weight = Decimal(str(self.last_known_weight))
             if weight <= 0:
-                QMessageBox.warning(self, "Venda por KG", "Nenhum peso foi calculado. Use o botão 'Calcular Peso da Balança' primeiro.")
+                QMessageBox.warning(self, "Venda por KG", "Nenhum peso detectado na balança. Verifique se há um item na balança.")
                 return
 
             self.product_code_input.setText("9999")
             self.add_product_to_sale(weight_from_scale=weight)
 
-        except ValueError:
-            QMessageBox.warning(self, "Erro", "Valor de peso inválido no painel.")
         except Exception as e:
             QMessageBox.critical(self, "Erro Crítico", f"Ocorreu um erro ao processar a venda por KG: {e}")
 
@@ -438,25 +444,6 @@ class SalesPage(QWidget):
         return True
 
     def reload_data(self):
-        """Recarrega dados dinâmicos da página, como os atalhos."""
-        # Limpa os atalhos antigos
-        for i in reversed(range(self.dynamic_shortcuts_layout.count())):
-            widget = self.dynamic_shortcuts_layout.itemAt(i).widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        # Recarrega os atalhos
-        shortcuts = self.load_shortcuts_config()
-        for shortcut in shortcuts:
-            button = QPushButton(shortcut["name"])
-            button.setObjectName("modern_button_secondary")
-            button.setMinimumHeight(60)
-            button.clicked.connect(lambda checked, b=shortcut["barcode"]: self.on_shortcut_button_clicked(b))
-            self.shortcuts_layout.addWidget(button)
-
-        # Adiciona os botões fixos de volta
-        spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.shortcuts_layout.addItem(spacer)
-        self.shortcuts_layout.addWidget(self.quick_kg_sale_button)
-        self.shortcuts_layout.addWidget(self.price_config_button)
-        print("Atalhos da página de vendas recarregados.")
+        """Recarrega dados dinâmicos da página. Atualmente, delega para reload_shortcuts."""
+        self.reload_shortcuts()
+        print("Dados da página de vendas (atalhos) recarregados.")

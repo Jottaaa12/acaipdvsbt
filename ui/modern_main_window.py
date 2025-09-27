@@ -289,6 +289,24 @@ class ModernDashboard(QWidget):
         self.setup_ui()
         self.update_dashboard_data() # Carga inicial
 
+        # Conexões assíncronas para o status da balança
+        self.scale_handler.weight_updated.connect(self.on_scale_ok)
+        self.scale_handler.error_occurred.connect(self.on_scale_error)
+        # Define um status inicial
+        self.scale_status_label.setText("⚖️ Verificando balança...")
+        self.scale_status_label.setStyleSheet(f"color: {ModernTheme.GRAY}; font-weight: 500;")
+
+    def on_scale_ok(self, weight):
+        # Apenas atualiza o status na primeira leitura ou se o estado era de erro
+        if "Conectada" not in self.scale_status_label.text():
+            self.scale_status_label.setText("⚖️ Balança Conectada")
+            self.scale_status_label.setStyleSheet(f"color: {ModernTheme.SUCCESS}; font-weight: 500;")
+
+    def on_scale_error(self, error_message):
+        self.scale_status_label.setText(f"⚖️ Balança Desconectada")
+        self.scale_status_label.setStyleSheet(f"color: {ModernTheme.ERROR}; font-weight: 500;")
+        print(f"Dashboard: Erro recebido do ScaleHandler: {error_message}")
+
     def setup_ui(self):
         """Configura a UI do dashboard com uma área de rolagem."""
         # O layout principal do dashboard agora contém apenas a área de rolagem
@@ -516,15 +534,7 @@ class ModernDashboard(QWidget):
             print(f"Erro ao atualizar tabela de últimas vendas: {e}")
 
     def update_peripherals_status(self):
-        # Balança
-        if self.scale_handler.check_status():
-            self.scale_status_label.setText("⚖️ Balança Conectada")
-            self.scale_status_label.setStyleSheet(f"color: {ModernTheme.SUCCESS}; font-weight: 500;")
-        else:
-            self.scale_status_label.setText("⚖️ Balança Desconectada")
-            self.scale_status_label.setStyleSheet(f"color: {ModernTheme.ERROR}; font-weight: 500;")
-
-        # Impressora
+        # Status da Impressora (a balança é atualizada por sinais)
         status, message = self.printer_handler.check_status()
         if status:
             self.printer_status_label.setText(f"🖨️ {message}")
@@ -549,6 +559,8 @@ class ModernDashboard(QWidget):
         """)
 
 
+import json
+
 class ModernMainWindow(QMainWindow):
     """Janela principal moderna"""
     
@@ -558,13 +570,23 @@ class ModernMainWindow(QMainWindow):
         super().__init__()
         self.current_user = current_user
         self.current_cash_session = None
+
+        # Carregar configuração
+        self.config = self.load_config()
+        hardware_mode = self.config.get('hardware_mode', 'test')
         
         self.setWindowTitle(f"PDV Açaí - {current_user['username']}")
         self.setGeometry(100, 100, 1400, 900)
 
         # Handlers
-        self.scale_handler = ScaleHandler()
-        self.printer_handler = PrinterHandler()
+        self.scale_handler = ScaleHandler(
+            mode=hardware_mode, 
+            **self.config.get('scale', {})
+        )
+        self.printer_handler = PrinterHandler(
+            mode=hardware_mode, 
+            **self.config.get('printer', {})
+        )
         
         self.setup_ui()
         self.apply_theme()
@@ -575,14 +597,47 @@ class ModernMainWindow(QMainWindow):
         self.update_timer.timeout.connect(self.update_data)
         self.update_timer.start(30000)  # 30 segundos
     
+    def load_config(self):
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Retorna uma config padrão em caso de erro
+            return {
+                "hardware_mode": "test",
+                "scale": {},
+                "printer": {}
+            }
+
     def setup_ui(self):
         """Configura a interface principal"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        main_layout = QHBoxLayout(central_widget)
+        # Layout principal que pode conter o banner
+        self.root_layout = QVBoxLayout(central_widget)
+        self.root_layout.setContentsMargins(0, 0, 0, 0)
+        self.root_layout.setSpacing(0)
+
+        # Adicionar banner de modo de teste se necessário
+        if self.config.get('hardware_mode', 'test') == 'test':
+            self.test_mode_banner = QLabel("AMBIENTE DE TESTES - O hardware real (balança, impressora) não será utilizado.")
+            self.test_mode_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.test_mode_banner.setStyleSheet("""
+                background-color: #FFC107; /* Amarelo Âmbar */
+                color: black;
+                font-weight: bold;
+                padding: 8px;
+                font-size: 14px;
+            """)
+            self.root_layout.addWidget(self.test_mode_banner)
+
+        # Container para a sidebar e conteúdo
+        main_content_widget = QWidget()
+        main_layout = QHBoxLayout(main_content_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        self.root_layout.addWidget(main_content_widget)
         
         # Sidebar
         self.sidebar = ModernSidebar()
