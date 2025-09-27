@@ -2,8 +2,8 @@ import requests
 import webbrowser
 from PyQt6.QtWidgets import QMessageBox
 
-VERSION_URL = "URL_DA_VERSAO_AQUI"
-DOWNLOAD_URL = "URL_DO_DOWNLOAD_AQUI"
+VERSION_URL = "https://raw.githubusercontent.com/Jottaaa12/acaipdvsbt/refs/heads/main/versao.txt"
+DOWNLOAD_URL = "https://github.com/Jottaaa12/acaipdvsbt/releases/download/1.0.0/PDV.Moderno.exe"
 
 def check_for_updates(current_version):
     try:
