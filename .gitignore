@@ -1,0 +1,47 @@
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.spec
+
+# Installer files
+/setup.iss
+
+# User-specific files
+.DS_Store
+.env
+.venv
+venv/
+
+# Database file
+*.db
+*.db-journal
+*.sqlite3
+
+# Backup files
+backups/

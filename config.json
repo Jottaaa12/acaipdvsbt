@@ -1,0 +1,33 @@
+{
+    "store": {
+        "name": "A\u00c7AI",
+        "address": "SEU ENDERE\u00c7O, 123",
+        "phone": "(99) 99999-9999",
+        "cnpj": ""
+    },
+    "scale": {
+        "port": "COM3",
+        "baudrate": 9600,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": 1
+    },
+    "printer": {
+        "vendor_id": "",
+        "product_id": ""
+    },
+    "shortcuts": [
+        {
+            "name": "A\u00e7a\u00ed 200g",
+            "barcode": "acai200"
+        },
+        {
+            "name": "A\u00e7a\u00ed 300g",
+            "barcode": "acai300"
+        },
+        {
+            "name": "A\u00e7a\u00ed 500g",
+            "barcode": "acai500"
+        }
+    ]
+}
