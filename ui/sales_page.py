@@ -440,8 +440,8 @@ class SalesPage(QWidget):
     def reload_data(self):
         """Recarrega dados dinâmicos da página, como os atalhos."""
         # Limpa os atalhos antigos
-        for i in reversed(range(self.shortcuts_layout.count())):
-            widget = self.shortcuts_layout.itemAt(i).widget()
+        for i in reversed(range(self.dynamic_shortcuts_layout.count())):
+            widget = self.dynamic_shortcuts_layout.itemAt(i).widget()
             if widget is not None:
                 widget.deleteLater()
 

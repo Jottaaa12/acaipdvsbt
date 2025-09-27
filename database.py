@@ -192,9 +192,13 @@ def add_product(description, barcode, price, stock, sale_type, group_id):
     try:
         price_decimal = Decimal(str(price)).quantize(Decimal('0.01'))
         price_in_cents = to_cents(price_decimal)
+        
+        # Converte o estoque para float, pois a coluna é REAL
+        stock_float = float(stock)
+
         cursor.execute(
             'INSERT INTO products (description, barcode, price, stock, sale_type, group_id) VALUES (?, ?, ?, ?, ?, ?)',
-            (description, barcode, price_in_cents, stock, sale_type, group_id)
+            (description, barcode, price_in_cents, stock_float, sale_type, group_id)
         )
         conn.commit()
         return True, cursor.lastrowid
@@ -235,11 +239,15 @@ def update_product(product_id, description, barcode, price, stock, sale_type, gr
     try:
         price_decimal = Decimal(str(price)).quantize(Decimal('0.01'))
         price_in_cents = to_cents(price_decimal)
+
+        # Converte o estoque para float, pois a coluna é REAL
+        stock_float = float(stock)
+
         cursor.execute('''
             UPDATE products 
             SET description = ?, barcode = ?, price = ?, stock = ?, sale_type = ?, group_id = ?
             WHERE id = ?
-        ''', (description, barcode, price_in_cents, stock, sale_type, group_id, product_id))
+        ''', (description, barcode, price_in_cents, stock_float, sale_type, group_id, product_id))
         conn.commit()
         return True, "Produto atualizado com sucesso."
     except sqlite3.IntegrityError:

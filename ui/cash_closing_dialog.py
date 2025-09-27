@@ -1,3 +1,4 @@
+
 '''
 Dialog Aprimorado para Fechamento de Caixa
 
@@ -5,11 +6,12 @@ Foco em contagem, observações e um relatório final claro.
 '''
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, 
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, 
     QGridLayout, QGroupBox, QTextEdit, QDialogButtonBox, QLineEdit
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import database as db
 from utils import format_currency, parse_currency, to_reais
@@ -164,7 +166,7 @@ class CashClosingDialog(QDialog):
             f"Sessão ID: {self.session_id}\n"
             f"Operador:  {s_info['username']}\n"
             f"Abertura:  {s_info['open_time'].strftime('%d/%m/%Y %H:%M')}\n"
-            f"Fechamento:{db.datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+            f"Fechamento:{datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
         )
         
         summary_header = "RESUMO FINANCEIRO".center(50, '-')
@@ -173,4 +175,58 @@ class CashClosingDialog(QDialog):
             f"(+) Vendas em Dinheiro:       {format_currency(self.expected_summary['cash_sales']).rjust(15)}\n"
             f"(+) Suprimentos:              {format_currency(self.expected_summary['supplies']).rjust(15)}\n"
             f"(-) Sangrias:                 {format_currency(self.expected_summary['withdrawals'], is_negative=True).rjust(15)}\n"
-            f"{"-
+            f"{'*'*50}\n"
+            f"(=) SALDO ESPERADO:           {format_currency(self.expected_summary['expected_cash']).rjust(15)}\n"
+            f"    SALDO CONTADO:            {format_currency(counted_cash).rjust(15)}\n"
+            f"{'*'*50}\n"
+            f"(=) DIFERENÇA:                {format_currency(difference).rjust(15)}\n"
+        )
+
+        other_sales_header = "VENDAS (OUTRAS FORMAS)".center(50, '-')
+        other_sales_lines = ""
+        if self.expected_summary['other_sales']:
+            for method, total in self.expected_summary['other_sales'].items():
+                other_sales_lines += f"{method.ljust(25)} {format_currency(total).rjust(24)}\n"
+        else:
+            other_sales_lines = "Nenhuma venda em outras formas de pagamento.\n"
+
+        obs_header = "OBSERVAÇÕES".center(50, '-')
+        obs_text = observations if observations else "Nenhuma observação."
+
+        return (
+            f"{header}\n"
+            f"{session_details}\n"
+            f"{summary_header}\n"
+            f"{summary_lines}"
+            f"{other_sales_header}\n"
+            f"{other_sales_lines}\n"
+            f"{obs_header}\n"
+            f"{obs_text}\n"
+            f"{ '='*50}\n"
+        )
+
+    def confirm_close_cash(self):
+        """Submete os dados finais e fecha o caixa no banco de dados."""
+        if not self.final_data:
+            QMessageBox.critical(self, "Erro", "Não há dados finais para submeter.")
+            return
+
+        success, result = db.close_cash_session(
+            session_id=self.session_id,
+            user_id=self.current_user['id'],
+            final_amount=self.final_data['counted_cash'],
+            cash_counts={},  # O UI simplificado não tem contagem por denominação
+            observations=self.final_data['observations']
+        )
+
+        if success:
+            QMessageBox.information(self, "Sucesso", "Caixa fechado com sucesso!")
+            self.accept()  # Fecha o diálogo
+        else:
+            QMessageBox.critical(self, "Erro ao Fechar o Caixa", str(result))
+
+    def back_to_counting(self):
+        """Volta para a tela de contagem para corrigir ou revisar."""
+        self.report_widget.setVisible(False)
+        self.counting_widget.setVisible(True)
+        self.adjustSize()

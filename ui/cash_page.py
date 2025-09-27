@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QDate
 from PyQt6.QtGui import QFont, QColor
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import database as db
 from ui.theme import ModernTheme, IconTheme
