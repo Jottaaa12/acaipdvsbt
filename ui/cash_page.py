@@ -14,6 +14,8 @@ from ui.theme import ModernTheme, IconTheme
 from utils import format_currency, parse_currency
 from ui.cash_manager import CashManager
 from ui.cash_closing_dialog import CashClosingDialog
+from integrations.whatsapp_manager import WhatsAppManager
+from PyQt6.QtCore import QThreadPool
 
 class CashPage(QWidget):
     '''Página refatorada para uma gestão de caixa moderna e completa.'''
@@ -418,6 +420,9 @@ class CashPage(QWidget):
             QMessageBox.information(self, "Sucesso", f"Caixa aberto com ID: {message}")
             self.update_live_data()
             self.cash_session_changed.emit()
+
+            # Enviar notificação do WhatsApp se habilitada
+            self.send_whatsapp_notification('open')
         else:
             QMessageBox.warning(self, "Erro", message)
         self.update_buttons_state(is_open=success, is_busy=False)
@@ -448,9 +453,12 @@ class CashPage(QWidget):
             self.update_live_data()
             self.load_session_history()
             self.cash_session_changed.emit()
+
+            # Enviar notificação do WhatsApp se habilitada
+            self.send_whatsapp_notification('close')
         else:
             QMessageBox.critical(self, "Erro ao Fechar o Caixa", message)
-        
+
         self.update_buttons_state(is_open=False, is_busy=False)
 
     def handle_cash_movement(self, m_type):
@@ -510,6 +518,75 @@ class CashPage(QWidget):
                 self.summary_expected_cash.setStyleSheet("")
         except (InvalidOperation, TypeError): # TypeError para open_time que pode ser string
             pass
+
+    def send_whatsapp_notification(self, action):
+        """Envia notificação via WhatsApp para abertura ou fechamento de caixa."""
+        try:
+            # Verificar se as notificações estão habilitadas
+            whatsapp_enabled = db.load_setting('whatsapp_notifications_enabled', 'false')
+            if whatsapp_enabled.lower() != 'true':
+                return
+
+            # Obter número do telefone
+            phone_number = db.load_setting('whatsapp_notification_number', '')
+            if not phone_number:
+                print(f"[{datetime.now()}] WhatsApp: Notificações habilitadas mas número não configurado")
+                return
+
+            # Obter dados da sessão atual
+            current_session = db.get_current_cash_session()
+            if not current_session:
+                print(f"[{datetime.now()}] WhatsApp: Sessão de caixa não encontrada")
+                return
+
+            # Criar mensagem baseada na ação
+            if action == 'open':
+                message = f"""✅ *CAIXA ABERTO*
+
+📅 Data/Hora: {current_session['open_time'].strftime('%d/%m/%Y %H:%M')}
+👤 Operador: {current_session['username']}
+💰 Saldo Inicial: R$ {current_session['initial_amount']:.2f}
+🆔 Sessão: #{current_session['id']}
+
+Caixa aberto com sucesso no sistema PDV."""
+
+            elif action == 'close':
+                # Obter relatório da sessão para dados de fechamento
+                report = db.get_cash_session_report(current_session['id'])
+                if not report or not report['session']:
+                    print(f"[{datetime.now()}] WhatsApp: Relatório da sessão não encontrado")
+                    return
+
+                session_data = report['session']
+                total_sales = sum(Decimal(s['total']) for s in report['sales'])
+
+                message = f"""❌ *CAIXA FECHADO*
+
+📅 Data/Hora: {session_data['close_time'].strftime('%d/%m/%Y %H:%M')}
+👤 Operador: {session_data['username']}
+💰 Saldo Inicial: R$ {session_data['initial_amount']:.2f}
+💰 Total de Vendas: R$ {total_sales:.2f}
+💰 Valor Contado: R$ {session_data['final_amount']:.2f}
+💰 Diferença: R$ {session_data['difference']:.2f}
+🆔 Sessão: #{session_data['id']}
+
+Caixa fechado com sucesso no sistema PDV."""
+
+            else:
+                print(f"[{datetime.now()}] WhatsApp: Ação desconhecida: {action}")
+                return
+
+            # Enviar notificação usando o novo WhatsAppManager
+            manager = WhatsAppManager()
+            success = manager.send_message(phone_number, message)
+
+            if success:
+                print(f"[{datetime.now()}] WhatsApp: Notificação de {action} enviada para {phone_number}")
+            else:
+                print(f"[{datetime.now()}] WhatsApp: Falha ao enviar notificação de {action} para {phone_number}")
+
+        except Exception as e:
+            print(f"[{datetime.now()}] WhatsApp: Erro ao enviar notificação - {str(e)}")
 
     def closeEvent(self, event):
         self.update_timer.stop()

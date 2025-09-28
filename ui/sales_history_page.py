@@ -140,7 +140,12 @@ class SalesHistoryPage(QWidget):
             self.sales_table.setItem(row, 0, QTableWidgetItem(str(sale['id'])))
             self.sales_table.setItem(row, 1, QTableWidgetItem(sale['sale_date']))
             self.sales_table.setItem(row, 2, QTableWidgetItem(f"{sale['total_amount']:.2f}"))
-            self.sales_table.setItem(row, 3, QTableWidgetItem(sale['payment_method']))
+            # Obter métodos de pagamento para esta venda
+            payment_methods = db.get_payment_summary_by_sale(sale['id'])
+            payment_text = ", ".join([f"{p['payment_method']} (R$ {p['amount']:.2f})" for p in payment_methods])
+            if not payment_text:
+                payment_text = "N/A"
+            self.sales_table.setItem(row, 3, QTableWidgetItem(payment_text))
             self.sales_table.setItem(row, 4, QTableWidgetItem(sale['username'] or 'N/A'))
             total_value += sale['total_amount']
         

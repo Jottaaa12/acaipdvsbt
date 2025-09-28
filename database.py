@@ -122,12 +122,22 @@ def create_tables():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_amount INTEGER NOT NULL,
-            payment_method TEXT NOT NULL,
             user_id INTEGER,
             cash_session_id INTEGER,
             training_mode BOOLEAN DEFAULT 0,
             FOREIGN KEY (user_id) REFERENCES users (id),
             FOREIGN KEY (cash_session_id) REFERENCES cash_sessions (id)
+        )
+    ''')
+
+    # Nova tabela para armazenar pagamentos individuais
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sale_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id INTEGER NOT NULL,
+            payment_method TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE
         )
     ''')
 
@@ -172,10 +182,33 @@ def create_tables():
     if cursor.fetchone()[0] == 0:
         admin_password = hash_password('admin123')
         cursor.execute('''
-            INSERT INTO users (username, password_hash, role) 
+            INSERT INTO users (username, password_hash, role)
             VALUES (?, ?, ?)
         ''', ('admin', admin_password, 'gerente'))
         print("Usuário administrador criado: admin / admin123")
+
+    # Criar tabela de configurações se não existir
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Inserir configurações padrão do WhatsApp se não existirem
+    whatsapp_configs = [
+        ('whatsapp_notifications_enabled', 'false'),
+        ('whatsapp_notification_number', '')
+    ]
+
+    for key, value in whatsapp_configs:
+        cursor.execute('''
+            INSERT OR IGNORE INTO settings (key, value)
+            VALUES (?, ?)
+        ''', (key, value))
 
     # Inserir formas de pagamento padrão se não existirem
     default_payment_methods = ['Dinheiro', 'PIX', 'Débito', 'Crédito']
@@ -708,11 +741,12 @@ def close_cash_session(session_id, user_id, final_amount, cash_counts, observati
         if not session_cents:
             return False, "Sessão não encontrada"
 
-        # Soma vendas em dinheiro (valores já em centavos no DB)
+        # Soma vendas em dinheiro usando a nova tabela sale_payments (valores já em centavos no DB)
         cash_sales_cents = cursor.execute('''
-            SELECT COALESCE(SUM(total_amount), 0) as total
-            FROM sales 
-            WHERE cash_session_id = ? AND payment_method = 'Dinheiro' AND training_mode = 0
+            SELECT COALESCE(SUM(sp.amount), 0) as total
+            FROM sale_payments sp
+            JOIN sales s ON sp.sale_id = s.id
+            WHERE s.cash_session_id = ? AND sp.payment_method = 'Dinheiro' AND s.training_mode = 0
         ''', (session_id,)).fetchone()['total']
 
         # Soma movimentos (valores já em centavos no DB)
@@ -962,12 +996,12 @@ def register_sale_with_user(total_amount, payment_method, items, user_id=None, c
         # Garante que o valor final seja um inteiro
         total_amount_cents = int(to_cents(total_amount))
         cursor.execute('''
-            INSERT INTO sales (total_amount, payment_method, user_id, cash_session_id, training_mode) 
-            VALUES (?, ?, ?, ?, ?)
-        ''', (total_amount_cents, payment_method, user_id, cash_session_id, training_mode))
-        
+            INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode)
+            VALUES (?, ?, ?, ?)
+        ''', (total_amount_cents, user_id, cash_session_id, training_mode))
+
         sale_id = cursor.lastrowid
-        
+
         for item in items:
             # Garante que os valores de preço também sejam inteiros
             unit_price_cents = int(to_cents(item['unit_price']))
@@ -975,24 +1009,56 @@ def register_sale_with_user(total_amount, payment_method, items, user_id=None, c
             quantity_float = float(item['quantity']) # Correção anterior mantida
 
             cursor.execute('''
-                INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price) 
+                INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
                 VALUES (?, ?, ?, ?, ?)
             ''', (sale_id, item['id'], quantity_float, unit_price_cents, total_price_cents))
-            
+
             # Só atualiza estoque se não for modo treinamento e o item for vendido por unidade.
             if not training_mode and item.get('sale_type') == 'unit':
                 # Verifica se há estoque suficiente
                 stock_check = cursor.execute('SELECT stock FROM products WHERE id = ?', (item['id'],)).fetchone()
                 if stock_check and stock_check[0] < item['quantity']:
                     raise sqlite3.Error(f"Estoque insuficiente para o produto: {item['description']}")
-                
+
                 cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (float(item['quantity']), item['id']))
-        
+
+        # Se payment_method for uma string (formato antigo), converte para lista de pagamentos
+        if isinstance(payment_method, str):
+            # Tenta fazer o parsing da string para extrair os pagamentos
+            import re
+            payment_pattern = r'(\w+):\s*R\$\s*([\d,]+)'
+            matches = re.findall(payment_pattern, payment_method)
+
+            if matches:
+                # Se conseguiu extrair pagamentos da string, usa eles
+                payments_list = []
+                for method, amount_str in matches:
+                    try:
+                        amount_decimal = Decimal(amount_str.replace(',', '.'))
+                        payments_list.append({'method': method, 'amount': amount_decimal})
+                    except:
+                        # Se não conseguir fazer o parsing, usa o método antigo
+                        payments_list = [{'method': payment_method, 'amount': total_amount}]
+            else:
+                # Se não conseguiu extrair, usa o método antigo
+                payments_list = [{'method': payment_method, 'amount': total_amount}]
+        else:
+            # Se já for uma lista (novo formato), usa diretamente
+            payments_list = payment_method
+
+        # Insere os pagamentos individuais na tabela sale_payments
+        for payment in payments_list:
+            payment_amount_cents = int(to_cents(payment['amount']))
+            cursor.execute('''
+                INSERT INTO sale_payments (sale_id, payment_method, amount)
+                VALUES (?, ?, ?)
+            ''', (sale_id, payment['method'], payment_amount_cents))
+
         conn.commit()
-        
+
         if user_id:
             log_audit(user_id, 'SALE', 'sales', sale_id)
-        
+
         return True, sale_id
     except sqlite3.Error as e:
         conn.rollback()
@@ -1022,19 +1088,39 @@ def get_payment_summary_by_cash_session(session_id):
     """Retorna resumo de vendas por forma de pagamento para uma sessão."""
     conn = get_db_connection()
     rows = conn.execute('''
-        SELECT payment_method, COUNT(*) as count, SUM(total_amount) as total
-        FROM sales 
-        WHERE cash_session_id = ? AND training_mode = 0
-        GROUP BY payment_method
-        ORDER BY payment_method
+        SELECT sp.payment_method, COUNT(DISTINCT sp.sale_id) as count, SUM(sp.amount) as total
+        FROM sale_payments sp
+        JOIN sales s ON sp.sale_id = s.id
+        WHERE s.cash_session_id = ? AND s.training_mode = 0
+        GROUP BY sp.payment_method
+        ORDER BY sp.payment_method
     ''', (session_id,)).fetchall()
     conn.close()
-    
+
     summary = []
     for row in rows:
         item = dict(row)
         if item.get('total') is not None:
             item['total'] = to_reais(item['total'])
+        summary.append(item)
+    return summary
+
+def get_payment_summary_by_sale(sale_id):
+    """Retorna resumo de pagamentos para uma venda específica."""
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT payment_method, amount
+        FROM sale_payments
+        WHERE sale_id = ?
+        ORDER BY payment_method
+    ''', (sale_id,)).fetchall()
+    conn.close()
+
+    summary = []
+    for row in rows:
+        item = dict(row)
+        if item.get('amount') is not None:
+            item['amount'] = to_reais(item['amount'])
         summary.append(item)
     return summary
 
@@ -1151,11 +1237,11 @@ def get_latest_sales(limit=5):
 def get_sales_report(start_date, end_date):
     """Gera um relatório de vendas consolidado para um período."""
     conn = get_db_connection()
-    
+
     start_datetime = f'{start_date} 00:00:00'
     end_datetime = f'{end_date} 23:59:59'
     params = (start_datetime, end_datetime)
-    
+
     # 1. Resumo Geral
     general_summary_query = '''
         SELECT
@@ -1165,20 +1251,21 @@ def get_sales_report(start_date, end_date):
         WHERE sale_date BETWEEN ? AND ? AND training_mode = 0
     '''
     general_summary_row = conn.execute(general_summary_query, params).fetchone()
-    
-    # 2. Vendas por Forma de Pagamento
+
+    # 2. Vendas por Forma de Pagamento - Agora usando a tabela sale_payments
     payment_method_query = '''
         SELECT
-            payment_method,
-            COALESCE(SUM(total_amount), 0) as total,
-            COUNT(id) as count
-        FROM sales
-        WHERE sale_date BETWEEN ? AND ? AND training_mode = 0
-        GROUP BY payment_method
+            sp.payment_method,
+            COALESCE(SUM(sp.amount), 0) as total,
+            COUNT(DISTINCT sp.sale_id) as count
+        FROM sale_payments sp
+        JOIN sales s ON sp.sale_id = s.id
+        WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
+        GROUP BY sp.payment_method
         ORDER BY total DESC
     '''
     payment_methods_rows = conn.execute(payment_method_query, params).fetchall()
-    
+
     # 3. Produtos Mais Vendidos
     top_products_query = '''
         SELECT
@@ -1193,9 +1280,9 @@ def get_sales_report(start_date, end_date):
         ORDER BY quantity_sold DESC
     '''
     top_products_rows = conn.execute(top_products_query, params).fetchall()
-    
+
     conn.close()
-    
+
     # Conversão de centavos para float
     total_revenue_cents = general_summary_row['total_revenue']
     total_revenue = to_reais(total_revenue_cents)
@@ -1316,6 +1403,41 @@ def get_cash_session_history(start_date=None, end_date=None, operator_id=None, l
                 session[field] = to_reais(session[field])
         history.append(session)
     return history
+
+# --- Funções de Configurações ---
+
+def save_setting(key, value):
+    """Salva ou atualiza uma configuração no banco de dados."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (key, str(value)))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Erro ao salvar configuração {key}: {e}")
+        return False
+    finally:
+        conn.close()
+
+def load_setting(key, default_value=None):
+    """Carrega uma configuração do banco de dados."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
+        row = cursor.fetchone()
+        if row:
+            return row['value']
+        return default_value
+    except sqlite3.Error as e:
+        print(f"Erro ao carregar configuração {key}: {e}")
+        return default_value
+    finally:
+        conn.close()
 
 # if __name__ == '__main__':
 #     if os.path.exists(DB_FILE):

@@ -1,118 +1,175 @@
-'''
-Script de migração para atualizar o esquema do banco de dados.
-'''
+#!/usr/bin/env python3
+"""
+Script de migração para atualizar o banco de dados do PDV
+para o novo sistema de múltiplos pagamentos por venda.
+
+Este script:
+1. Cria a nova tabela sale_payments
+2. Migra os dados existentes da coluna payment_method para a nova tabela
+3. Remove a coluna payment_method da tabela sales
+"""
+
 import sqlite3
+import re
+from decimal import Decimal
+from utils import get_data_path
 
-DB_FILE = 'pdv.db'
+DB_FILE = get_data_path('pdv.db')
 
-def run_migration():
-    '''Executa as alterações necessárias no banco de dados.'''
-    conn = None
+def get_db_connection():
+    """Cria e retorna uma conexão com o banco de dados."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def migrate_database():
+    """Executa a migração do banco de dados."""
+    print("Iniciando migração do banco de dados...")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        print("Conectado ao banco de dados para migração.")
-
-        # Verificar se a coluna 'quantity' já existe na tabela products
-        cursor.execute("PRAGMA table_info(products)")
+        # Verifica se a tabela sales ainda tem a coluna payment_method
+        cursor.execute("PRAGMA table_info(sales)")
         columns = cursor.fetchall()
-        column_names = [column[1] for column in columns]
+        has_payment_method_column = any(col['name'] == 'payment_method' for col in columns)
 
-        if 'quantity' not in column_names:
-            print("Iniciando migração para adicionar coluna 'quantity' e converter 'stock' para INTEGER...")
+        if not has_payment_method_column:
+            print("✅ Migração já foi executada anteriormente. Nenhuma ação necessária.")
+            return True
 
-            # 1. Renomear tabela atual
-            cursor.execute('ALTER TABLE products RENAME TO products_old')
-            print("Tabela 'products' renomeada para 'products_old'.")
+        print("📋 Iniciando processo de migração...")
 
-            # 2. Criar nova tabela com estrutura atualizada
-            cursor.execute('''
-                CREATE TABLE products (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    description TEXT NOT NULL,
-                    barcode TEXT UNIQUE,
-                    price INTEGER NOT NULL,
-                    stock INTEGER NOT NULL,
-                    quantity INTEGER NOT NULL DEFAULT 0,
-                    sale_type TEXT NOT NULL CHECK(sale_type IN ('unit', 'weight')),
-                    group_id INTEGER,
-                    FOREIGN KEY (group_id) REFERENCES product_groups (id)
-                )
-            ''')
-            print("Nova tabela 'products' criada com colunas 'stock' e 'quantity' como INTEGER.")
+        # 1. Criar nova tabela sale_payments
+        print("   Criando tabela sale_payments...")
+        cursor.execute('''
+            CREATE TABLE sale_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id INTEGER NOT NULL,
+                payment_method TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE
+            )
+        ''')
 
-            # 3. Migrar dados convertendo valores para INTEGER (multiplicando por 1000)
-            cursor.execute('''
-                INSERT INTO products (id, description, barcode, price, stock, quantity, sale_type, group_id)
-                SELECT
-                    id,
-                    description,
-                    barcode,
-                    price,
-                    CAST(stock * 1000 AS INTEGER),
-                    CAST(stock * 1000 AS INTEGER),
-                    sale_type,
-                    group_id
-                FROM products_old
-            ''')
-            print("Dados migrados com valores multiplicados por 1000 para maior precisão.")
+        # 2. Migrar dados existentes
+        print("   Migrando dados existentes...")
 
-            # 4. Remover tabela antiga
-            cursor.execute('DROP TABLE products_old')
-            print("Tabela 'products_old' removida.")
-        else:
-            print("Coluna 'quantity' já existe. Verificando se há outras migrações necessárias...")
+        # Buscar todas as vendas que têm payment_method
+        cursor.execute('''
+            SELECT id, total_amount, payment_method
+            FROM sales
+            WHERE payment_method IS NOT NULL AND payment_method != ''
+        ''')
 
-        # Adicionar a coluna authorized_by_id à tabela cash_movements
-        try:
-            cursor.execute('ALTER TABLE cash_movements ADD COLUMN authorized_by_id INTEGER REFERENCES users(id)')
-            print("Coluna 'authorized_by_id' adicionada com sucesso à tabela 'cash_movements'.")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e):
-                print("A coluna 'authorized_by_id' já existe em 'cash_movements'.")
-            else:
-                raise
+        sales_to_migrate = cursor.fetchall()
 
-        # Adicionar a coluna observations à tabela cash_sessions
-        try:
-            cursor.execute('ALTER TABLE cash_sessions ADD COLUMN observations TEXT')
-            print("Coluna 'observations' adicionada com sucesso à tabela 'cash_sessions'.")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e):
-                print("A coluna 'observations' já existe em 'cash_sessions'.")
-            else:
-                raise
+        for sale in sales_to_migrate:
+            sale_id = sale['id']
+            total_amount = sale['total_amount']
+            payment_method_str = sale['payment_method']
 
-        # --- Nova Tabela: sale_payments ---
-        try:
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS sale_payments (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sale_id INTEGER NOT NULL,
-                    method TEXT NOT NULL,
-                    amount INTEGER NOT NULL,
-                    FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE
-                )
-            ''')
-            print("Tabela 'sale_payments' criada ou já existente.")
-            # Adicionar índice para melhorar a performance de buscas por sale_id
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments (sale_id);')
-            print("Índice para 'sale_payments.sale_id' criado ou já existente.")
-        except sqlite3.Error as e:
-            print(f"Erro ao criar a tabela 'sale_payments': {e}")
-            raise # Levanta o erro para abortar a transação
+            # Fazer o parsing da string de pagamento
+            payments_list = parse_payment_string(payment_method_str, total_amount)
+
+            # Inserir pagamentos na nova tabela
+            for payment in payments_list:
+                payment_amount_cents = int(payment['amount'] * 100)  # Converter para centavos
+                cursor.execute('''
+                    INSERT INTO sale_payments (sale_id, payment_method, amount)
+                    VALUES (?, ?, ?)
+                ''', (sale_id, payment['method'], payment_amount_cents))
+
+        # 3. Remover coluna payment_method da tabela sales
+        print("   Removendo coluna payment_method da tabela sales...")
+        cursor.execute('ALTER TABLE sales DROP COLUMN payment_method')
+
+        # 4. Criar índice para a nova tabela
+        print("   Criando índices...")
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments (sale_id)')
 
         conn.commit()
-        print("Migração do banco de dados concluída com sucesso.")
+        print("✅ Migração concluída com sucesso!")
+
+        # Verificar se há dados migrados
+        cursor.execute('SELECT COUNT(*) FROM sale_payments')
+        migrated_count = cursor.fetchone()[0]
+
+        print(f"📊 {migrated_count} registros de pagamento migrados.")
+
+        return True
 
     except sqlite3.Error as e:
-        print(f"Ocorreu um erro durante a migração do banco de dados: {e}")
-        if conn:
-            conn.rollback()
+        print(f"❌ Erro durante a migração: {e}")
+        conn.rollback()
+        return False
     finally:
-        if conn:
-            conn.close()
-            print("Conexão com o banco de dados fechada.")
+        conn.close()
+
+def parse_payment_string(payment_string, total_amount):
+    """
+    Faz o parsing de uma string de pagamento no formato antigo
+    e retorna uma lista de dicionários com os pagamentos.
+    """
+    payments_list = []
+
+    # Padrão para encontrar métodos e valores: "Método: R$ valor"
+    payment_pattern = r'(\w+):\s*R\$\s*([\d,]+)'
+    matches = re.findall(payment_pattern, payment_string)
+
+    if matches:
+        # Se conseguiu extrair pagamentos da string
+        for method, amount_str in matches:
+            try:
+                amount_decimal = Decimal(amount_str.replace(',', '.'))
+                payments_list.append({'method': method, 'amount': amount_decimal})
+            except:
+                print(f"   ⚠️  Erro ao fazer parsing do pagamento: {method}: R$ {amount_str}")
+                continue
+
+        # Verificar se a soma dos pagamentos é igual ao total
+        total_payments = sum(p['amount'] for p in payments_list)
+        if abs(total_payments - Decimal(str(total_amount)) / 100) > Decimal('0.01'):
+            print(f"   ⚠️  Diferença de valor detectada na venda. Total: {total_amount/100}, Pagamentos: {total_payments}")
+    else:
+        # Se não conseguiu extrair, assume que é um único método de pagamento
+        payments_list = [{'method': payment_string, 'amount': Decimal(str(total_amount)) / 100}]
+
+    return payments_list
+
+def check_migration_needed():
+    """Verifica se a migração é necessária."""
+    conn = get_db_connection()
+
+    try:
+        # Verifica se a tabela sales tem a coluna payment_method
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(sales)")
+        columns = cursor.fetchall()
+        has_payment_method_column = any(col['name'] == 'payment_method' for col in columns)
+
+        # Verifica se a tabela sale_payments existe
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sale_payments'")
+        has_sale_payments_table = cursor.fetchone() is not None
+
+        return has_payment_method_column and not has_sale_payments_table
+
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
-    run_migration()
+    print("🔧 Verificando necessidade de migração...")
+
+    if check_migration_needed():
+        print("📋 Migração necessária. Executando...")
+        success = migrate_database()
+
+        if success:
+            print("✅ Migração executada com sucesso!")
+            print("🎉 O sistema agora suporta múltiplos pagamentos por venda!")
+        else:
+            print("❌ Falha na migração. Verifique os logs de erro acima.")
+    else:
+        print("✅ Nenhuma migração necessária. O banco já está atualizado.")

@@ -131,16 +131,15 @@ class UserManagementPage(QWidget):
                 return
             
             success, message_or_id = db.create_user(username, password, role)
-            
+
             if not success:
                 QMessageBox.warning(self, "Erro ao Criar Usuário", message_or_id)
                 return
 
             QMessageBox.information(self, "Sucesso", f"Usuário '{username}' criado com sucesso!")
             user_id = message_or_id
-            # Atualiza o status de ativo se o padrão (ativo) for desmarcado
-            if not is_active:
-                db.update_user(user_id, active=is_active)
+            # Atualiza o status do usuário com o valor correto da checkbox
+            db.update_user(user_id, active=is_active)
 
         # --- Lógica para ATUALIZAR usuário ---
         else:

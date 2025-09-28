@@ -96,7 +96,6 @@ class ModernSidebar(QFrame):
             ("reports", f"{IconTheme.REPORTS} Relatórios", "reports"),
             ("cash", f"{IconTheme.CASH} Caixa", "cash"),
             ("settings", f"{IconTheme.SETTINGS} Configurações", "settings"),
-            ("users", f"{IconTheme.USERS} Usuários", "users"),
         ]
         
         for key, text, page in menu_items:
@@ -221,7 +220,6 @@ class ModernSidebar(QFrame):
             ("reports", f"{IconTheme.REPORTS} Relatórios"),
             ("cash", f"{IconTheme.CASH} Caixa"),
             ("settings", f"{IconTheme.SETTINGS} Configurações"),
-            ("users", f"{IconTheme.USERS} Usuários"),
         ]
         
         for key, text in menu_items:
@@ -758,13 +756,12 @@ class ModernMainWindow(QMainWindow):
             # Atualiza botão ativo na sidebar
             page_map = {
                 "dashboard": "dashboard",
-                "sales": "sales", 
+                "sales": "sales",
                 "sales_history": "sales_history",
                 "products": "products",
                 "reports": "reports",
                 "cash": "cash",
-                "settings": "settings",
-                "users": "users"
+                "settings": "settings"
             }
             
             if page_name in page_map:

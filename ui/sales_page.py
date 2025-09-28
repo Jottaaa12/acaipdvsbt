@@ -322,17 +322,11 @@ class SalesPage(QWidget):
         
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_data:
             payments = dialog.result_data['payments']
-            
-            # Format payment methods for storage
-            if len(payments) == 1:
-                payment_method_str = payments[0]['method']
-            else:
-                # Create a summary string for multiple payments
-                payment_method_str = ", ".join([f"{p['method']}: R$ {p['amount']:.2f}" for p in payments])
 
+            # Send payments list directly (new format) instead of concatenated string
             sale_success, sale_message_or_id = db.register_sale_with_user(
-                total_amount, payment_method_str, self.current_sale_items, 
-                user_id=self.main_window.current_user["id"], 
+                total_amount, payments, self.current_sale_items,
+                user_id=self.main_window.current_user["id"],
                 cash_session_id=self.main_window.current_cash_session["id"]
             )
 
@@ -344,6 +338,8 @@ class SalesPage(QWidget):
             
             if self.toggle_print_button.isChecked():
                 store_info = self.load_store_config()
+                # Create payment method string for receipt
+                payment_method_str = ", ".join([f"{p['method']}: R$ {p['amount']:.2f}" for p in payments])
                 sale_details = {'items': self.current_sale_items, 'total_amount': total_amount, 'payment_method': payment_method_str}
                 print_success, print_message = self.printer_handler.print_receipt(store_info, sale_details)
                 if not print_success:
