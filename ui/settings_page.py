@@ -119,12 +119,19 @@ class SettingsPage(QWidget):
                 row += 1
     
     def open_shortcut_management(self):
-        """Abre o diálogo de gerenciamento de atalhos."""
+        """Abre o diálogo de gerenciamento de atalhos e garante a atualização da tela de vendas."""
         widget = ShortcutManagementWidget()
-        # Conecta o sinal do widget diretamente ao slot da página de vendas
-        if self.sales_page:
-            widget.shortcuts_changed.connect(self.sales_page.reload_shortcuts)
+        
+        # Abre o diálogo. A execução do código fica "pausada" aqui até o diálogo ser fechado.
         self._create_modal_dialog("Gerenciar Atalhos Rápidos", widget)
+
+        # --- INÍCIO DA CORREÇÃO ---
+        # Esta linha SÓ SERÁ executada DEPOIS que a janela de gerenciamento for fechada.
+        # Verificamos se a referência à página de vendas existe e, em caso afirmativo,
+        # chamamos seu método para recarregar e recriar os botões de atalho.
+        if self.sales_page:
+            self.sales_page.reload_shortcuts()
+        # --- FIM DA CORREÇÃO ---
 
     def open_audit_log(self):
         """Abre o diálogo de log de auditoria."""

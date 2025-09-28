@@ -1,4 +1,3 @@
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -31,6 +30,7 @@ MANIFEST
 
 # Installer files
 /setup.iss
+Output/
 
 # User-specific files
 .DS_Store
