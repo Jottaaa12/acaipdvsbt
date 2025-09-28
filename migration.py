@@ -13,6 +13,56 @@ def run_migration():
         cursor = conn.cursor()
         print("Conectado ao banco de dados para migração.")
 
+        # Verificar se a coluna 'quantity' já existe na tabela products
+        cursor.execute("PRAGMA table_info(products)")
+        columns = cursor.fetchall()
+        column_names = [column[1] for column in columns]
+
+        if 'quantity' not in column_names:
+            print("Iniciando migração para adicionar coluna 'quantity' e converter 'stock' para INTEGER...")
+
+            # 1. Renomear tabela atual
+            cursor.execute('ALTER TABLE products RENAME TO products_old')
+            print("Tabela 'products' renomeada para 'products_old'.")
+
+            # 2. Criar nova tabela com estrutura atualizada
+            cursor.execute('''
+                CREATE TABLE products (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    description TEXT NOT NULL,
+                    barcode TEXT UNIQUE,
+                    price INTEGER NOT NULL,
+                    stock INTEGER NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 0,
+                    sale_type TEXT NOT NULL CHECK(sale_type IN ('unit', 'weight')),
+                    group_id INTEGER,
+                    FOREIGN KEY (group_id) REFERENCES product_groups (id)
+                )
+            ''')
+            print("Nova tabela 'products' criada com colunas 'stock' e 'quantity' como INTEGER.")
+
+            # 3. Migrar dados convertendo valores para INTEGER (multiplicando por 1000)
+            cursor.execute('''
+                INSERT INTO products (id, description, barcode, price, stock, quantity, sale_type, group_id)
+                SELECT
+                    id,
+                    description,
+                    barcode,
+                    price,
+                    CAST(stock * 1000 AS INTEGER),
+                    CAST(stock * 1000 AS INTEGER),
+                    sale_type,
+                    group_id
+                FROM products_old
+            ''')
+            print("Dados migrados com valores multiplicados por 1000 para maior precisão.")
+
+            # 4. Remover tabela antiga
+            cursor.execute('DROP TABLE products_old')
+            print("Tabela 'products_old' removida.")
+        else:
+            print("Coluna 'quantity' já existe. Verificando se há outras migrações necessárias...")
+
         # Adicionar a coluna authorized_by_id à tabela cash_movements
         try:
             cursor.execute('ALTER TABLE cash_movements ADD COLUMN authorized_by_id INTEGER REFERENCES users(id)')

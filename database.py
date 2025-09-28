@@ -35,7 +35,8 @@ def create_tables():
             description TEXT NOT NULL,
             barcode TEXT UNIQUE,
             price INTEGER NOT NULL,
-            stock REAL NOT NULL,
+            stock INTEGER NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
             sale_type TEXT NOT NULL CHECK(sale_type IN ('unit', 'weight')),
             group_id INTEGER,
             FOREIGN KEY (group_id) REFERENCES product_groups (id)
@@ -192,13 +193,14 @@ def add_product(description, barcode, price, stock, sale_type, group_id):
     try:
         price_decimal = Decimal(str(price)).quantize(Decimal('0.01'))
         price_in_cents = to_cents(price_decimal)
-        
-        # Converte o estoque para float, pois a coluna é REAL
-        stock_float = float(stock)
+
+        # Converte o estoque para INTEGER (multiplicando por 1000 para 3 casas decimais)
+        stock_decimal = Decimal(str(stock))
+        stock_integer = int(stock_decimal * 1000)
 
         cursor.execute(
-            'INSERT INTO products (description, barcode, price, stock, sale_type, group_id) VALUES (?, ?, ?, ?, ?, ?)',
-            (description, barcode, price_in_cents, stock_float, sale_type, group_id)
+            'INSERT INTO products (description, barcode, price, stock, quantity, sale_type, group_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (description, barcode, price_in_cents, stock_integer, stock_integer, sale_type, group_id)
         )
         conn.commit()
         return True, cursor.lastrowid
@@ -218,6 +220,9 @@ def get_all_products():
         product = dict(row)
         if product['price'] is not None:
             product['price'] = to_reais(product['price'])
+        # Converte stock de INTEGER para decimal (dividindo por 1000)
+        if product['stock'] is not None:
+            product['stock'] = Decimal(product['stock']) / Decimal('1000')
         products.append(product)
     return products
 
@@ -240,14 +245,15 @@ def update_product(product_id, description, barcode, price, stock, sale_type, gr
         price_decimal = Decimal(str(price)).quantize(Decimal('0.01'))
         price_in_cents = to_cents(price_decimal)
 
-        # Converte o estoque para float, pois a coluna é REAL
-        stock_float = float(stock)
+        # Converte o estoque para INTEGER (multiplicando por 1000 para 3 casas decimais)
+        stock_decimal = Decimal(str(stock))
+        stock_integer = int(stock_decimal * 1000)
 
         cursor.execute('''
-            UPDATE products 
-            SET description = ?, barcode = ?, price = ?, stock = ?, sale_type = ?, group_id = ?
+            UPDATE products
+            SET description = ?, barcode = ?, price = ?, stock = ?, quantity = ?, sale_type = ?, group_id = ?
             WHERE id = ?
-        ''', (description, barcode, price_in_cents, stock_float, sale_type, group_id, product_id))
+        ''', (description, barcode, price_in_cents, stock_integer, stock_integer, sale_type, group_id, product_id))
         conn.commit()
         return True, "Produto atualizado com sucesso."
     except sqlite3.IntegrityError:
@@ -1219,7 +1225,7 @@ def get_sales_report(start_date, end_date):
 def get_stock_report():
     """Gera um relatório de níveis de estoque."""
     conn = get_db_connection()
-    
+
     stock_levels_query = '''
         SELECT
             p.id,
@@ -1232,18 +1238,34 @@ def get_stock_report():
         ORDER BY p.description
     '''
     stock_levels = conn.execute(stock_levels_query).fetchall()
-    
+
+    # Converter stock de INTEGER para decimal
+    stock_levels_converted = []
+    for row in stock_levels:
+        item = dict(row)
+        if item['stock'] is not None:
+            item['stock'] = Decimal(item['stock']) / Decimal('1000')
+        stock_levels_converted.append(item)
+
     # Poderíamos adicionar um limite configurável de estoque baixo
     low_stock_query = '''
-        SELECT description, stock FROM products WHERE stock <= 5 ORDER BY stock ASC
+        SELECT description, stock FROM products WHERE stock <= 5000 ORDER BY stock ASC
     '''
     low_stock_items = conn.execute(low_stock_query).fetchall()
-    
+
+    # Converter também os itens de baixo estoque
+    low_stock_converted = []
+    for row in low_stock_items:
+        item = dict(row)
+        if item['stock'] is not None:
+            item['stock'] = Decimal(item['stock']) / Decimal('1000')
+        low_stock_converted.append(item)
+
     conn.close()
-    
+
     return {
-        'stock_levels': [dict(row) for row in stock_levels],
-        'low_stock_items': [dict(row) for row in low_stock_items]
+        'stock_levels': stock_levels_converted,
+        'low_stock_items': low_stock_converted
     }
 
 def get_cash_session_history(start_date=None, end_date=None, operator_id=None, limit=100):

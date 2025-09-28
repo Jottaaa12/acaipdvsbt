@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
 import database as db
 from datetime import datetime, timedelta
+from .worker import Worker
 
 class ReportsPage(QWidget):
     """Página para visualização de relatórios."""
@@ -42,8 +43,10 @@ class ReportsPage(QWidget):
         # Conecta o sinal de mudança de aba
         tab_widget.currentChanged.connect(self.on_tab_changed)
 
-        # Gera o relatório de vendas inicial
-        self.generate_sales_report()
+        # Gera o relatório de vendas inicial (após todos os widgets serem criados)
+        # Usamos QTimer.singleShot para garantir que tudo esteja inicializado
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self.generate_initial_report)
 
     def on_tab_changed(self, index):
         """Chamado quando o usuário muda de aba."""
@@ -148,14 +151,15 @@ class ReportsPage(QWidget):
     def create_cash_history_tab(self):
         """Cria a aba de histórico de caixa."""
         widget = QWidget()
+        self.cash_history_tab = widget  # Armazena referência para encontrar botões
         layout = QVBoxLayout(widget)
         layout.setSpacing(20)
 
         # Ações
         actions_layout = QHBoxLayout()
-        refresh_button = QPushButton("Atualizar")
-        refresh_button.clicked.connect(self.generate_cash_history_report)
-        actions_layout.addWidget(refresh_button)
+        self.refresh_button = QPushButton("Atualizar")
+        self.refresh_button.clicked.connect(self.generate_cash_history_report)
+        actions_layout.addWidget(self.refresh_button)
         actions_layout.addStretch()
         layout.addLayout(actions_layout)
 
@@ -163,7 +167,7 @@ class ReportsPage(QWidget):
         self.cash_history_table = QTableWidget()
         self.cash_history_table.setColumnCount(8)
         self.cash_history_table.setHorizontalHeaderLabels([
-            "ID", "Abertura", "Fechamento", "Valor Inicial", 
+            "ID", "Abertura", "Fechamento", "Valor Inicial",
             "Valor Esperado", "Valor Contado", "Diferença", "Usuário"
         ])
         self.cash_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -175,9 +179,24 @@ class ReportsPage(QWidget):
     # --- Funções de Lógica para Relatório de Vendas ---
 
     def generate_cash_history_report(self):
-        """Gera e exibe o relatório de histórico de caixa."""
-        history_data = db.get_cash_session_history()
+        """Gera e exibe o relatório de histórico de caixa de forma assíncrona."""
+        # Desabilita o botão durante a geração
+        self.refresh_button.setEnabled(False)
+        self.refresh_button.setText("Carregando...")
 
+        # Cria worker para executar o relatório em background
+        worker = Worker(db.get_cash_session_history)
+        worker.signals.result.connect(self.on_cash_history_report_ready)
+        worker.signals.error.connect(self.on_report_error)
+        worker.signals.finished.connect(self.on_cash_history_report_finished)
+
+        # Inicia o worker
+        from PyQt6.QtCore import QThreadPool
+        threadpool = QThreadPool.globalInstance()
+        threadpool.start(worker)
+
+    def on_cash_history_report_ready(self, history_data):
+        """Slot chamado quando o relatório de histórico de caixa está pronto."""
         self.cash_history_table.setRowCount(0)
         for row, item in enumerate(history_data):
             self.cash_history_table.insertRow(row)
@@ -203,6 +222,11 @@ class ReportsPage(QWidget):
             self.cash_history_table.setItem(row, 6, diff_item)
             self.cash_history_table.setItem(row, 7, QTableWidgetItem(item['user_opened']))
 
+    def on_cash_history_report_finished(self):
+        """Slot chamado quando o worker de histórico de caixa termina."""
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setText("Atualizar")
+
     def set_date_today(self):
         today = QDate.currentDate()
         self.start_date_edit.setDate(today)
@@ -220,11 +244,45 @@ class ReportsPage(QWidget):
         self.start_date_edit.setDate(start_of_month)
         self.end_date_edit.setDate(today)
 
+    def generate_initial_report(self):
+        """Gera o relatório inicial sem interferir com os botões."""
+        start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
+        end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
+
+        # Cria worker para executar o relatório em background
+        worker = Worker(db.get_sales_report, start_date, end_date)
+        worker.signals.result.connect(self.on_sales_report_ready)
+        worker.signals.error.connect(self.on_report_error)
+        worker.signals.finished.connect(self.on_report_finished)
+
+        # Inicia o worker
+        from PyQt6.QtCore import QThreadPool
+        threadpool = QThreadPool.globalInstance()
+        threadpool.start(worker)
+
     def generate_sales_report(self):
         start_date = self.start_date_edit.date().toString("yyyy-MM-dd")
         end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
 
-        report_data = db.get_sales_report(start_date, end_date)
+        # Verifica se o botão existe antes de tentar acessá-lo
+        if hasattr(self, 'generate_button') and self.generate_button:
+            # Desabilita o botão durante a geração
+            self.generate_button.setEnabled(False)
+            self.generate_button.setText("Gerando...")
+
+        # Cria worker para executar o relatório em background
+        worker = Worker(db.get_sales_report, start_date, end_date)
+        worker.signals.result.connect(self.on_sales_report_ready)
+        worker.signals.error.connect(self.on_report_error)
+        worker.signals.finished.connect(self.on_report_finished)
+
+        # Inicia o worker
+        from PyQt6.QtCore import QThreadPool
+        threadpool = QThreadPool.globalInstance()
+        threadpool.start(worker)
+
+    def on_sales_report_ready(self, report_data):
+        """Slot chamado quando o relatório de vendas está pronto."""
         self.current_report_data = report_data
 
         # Atualiza resumo
@@ -237,9 +295,9 @@ class ReportsPage(QWidget):
         self.payment_table.setRowCount(0)
         for row, item in enumerate(report_data['payment_methods']):
             self.payment_table.insertRow(row)
-            
+
             percentage = (item['total'] / total_revenue * 100) if total_revenue > 0 else 0
-            
+
             self.payment_table.setItem(row, 0, QTableWidgetItem(item['payment_method']))
             self.payment_table.setItem(row, 1, QTableWidgetItem(str(item['count'])))
             self.payment_table.setItem(row, 2, QTableWidgetItem(f"R$ {item['total']:.2f}"))
@@ -253,13 +311,13 @@ class ReportsPage(QWidget):
 
         total_label_item = QTableWidgetItem("TOTAL")
         total_label_item.setFont(bold_font)
-        
+
         total_sales_item = QTableWidgetItem(str(report_data['total_sales_count']))
         total_sales_item.setFont(bold_font)
-        
+
         total_revenue_item = QTableWidgetItem(f"R$ {total_revenue:.2f}")
         total_revenue_item.setFont(bold_font)
-        
+
         total_percent_item = QTableWidgetItem("100.0%")
         total_percent_item.setFont(bold_font)
 
@@ -268,7 +326,6 @@ class ReportsPage(QWidget):
         self.payment_table.setItem(total_row, 2, total_revenue_item)
         self.payment_table.setItem(total_row, 3, total_percent_item)
 
-
         # Atualiza tabela de produtos
         self.products_table.setRowCount(0)
         for row, item in enumerate(report_data['top_products']):
@@ -276,6 +333,19 @@ class ReportsPage(QWidget):
             self.products_table.setItem(row, 0, QTableWidgetItem(item['description']))
             self.products_table.setItem(row, 1, QTableWidgetItem(str(item['quantity_sold'])))
             self.products_table.setItem(row, 2, QTableWidgetItem(f"R$ {item['revenue']:.2f}"))
+
+    def on_report_error(self, error_info):
+        """Slot chamado quando há erro na geração do relatório."""
+        error, traceback_str = error_info
+        QMessageBox.critical(self, "Erro ao Gerar Relatório",
+                           f"Ocorreu um erro ao gerar o relatório:\n{error}")
+
+    def on_report_finished(self):
+        """Slot chamado quando o worker termina (sucesso ou erro)."""
+        # Reabilita o botão se ele existir
+        if hasattr(self, 'generate_button') and self.generate_button:
+            self.generate_button.setEnabled(True)
+            self.generate_button.setText("Gerar Relatório")
 
     def export_report_to_csv(self):
         if not self.current_report_data:

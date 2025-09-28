@@ -580,12 +580,11 @@ class ModernMainWindow(QMainWindow):
 
         # Handlers
         self.scale_handler = ScaleHandler(
-            mode=hardware_mode, 
+            mode=hardware_mode,
             **self.config.get('scale', {})
         )
         self.printer_handler = PrinterHandler(
-            mode=hardware_mode, 
-            **self.config.get('printer', {})
+            self.config.get('printer', {})
         )
         
         self.setup_ui()
@@ -661,6 +660,41 @@ class ModernMainWindow(QMainWindow):
         
 
     
+    def reload_hardware_handlers(self):
+        """Recarrega os handlers de hardware quando o modo de operação muda."""
+        print("ModernMainWindow: Recebido sinal para recarregar os handlers de hardware.")
+        self.config = self.load_config()
+        hardware_mode = self.config.get('hardware_mode', 'test')
+
+        # Reconfigura os handlers existentes
+        self.scale_handler.reconfigure(
+            mode=hardware_mode,
+            **self.config.get('scale', {})
+        )
+        self.printer_handler.reconfigure(
+            self.config.get('printer', {})
+        )
+
+        # Atualiza o banner de modo de teste
+        if hardware_mode == 'test':
+            if not hasattr(self, 'test_mode_banner'):
+                self.test_mode_banner = QLabel("AMBIENTE DE TESTES - O hardware real (balança, impressora) não será utilizado.")
+                self.test_mode_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.test_mode_banner.setStyleSheet("""
+                    background-color: #FFC107; /* Amarelo Âmbar */
+                    color: black;
+                    font-weight: bold;
+                    padding: 8px;
+                    font-size: 14px;
+                """)
+                self.root_layout.insertWidget(0, self.test_mode_banner)
+            self.test_mode_banner.show()
+        else:
+            if hasattr(self, 'test_mode_banner'):
+                self.test_mode_banner.hide()
+
+        print(f"Handlers de hardware reconfigurados para o modo: {hardware_mode}")
+
     def create_pages(self):
         """Cria as páginas do sistema"""
         # Dashboard
@@ -682,12 +716,13 @@ class ModernMainWindow(QMainWindow):
 
         # Settings
         self.pages["settings"] = SettingsPage(
-            scale_handler=self.scale_handler, 
-            printer_handler=self.printer_handler, 
+            scale_handler=self.scale_handler,
+            printer_handler=self.printer_handler,
             current_user=self.current_user,
             sales_page=self.pages["sales"]  # Injetando a dependência
         )
         self.content_area.addWidget(self.pages["settings"])
+        self.pages["settings"].operation_mode_changed.connect(self.reload_hardware_handlers)
 
         # Cash
         self.pages["cash"] = CashPage(self.current_user)

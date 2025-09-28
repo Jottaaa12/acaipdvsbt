@@ -13,8 +13,16 @@
         "stopbits": 1
     },
     "printer": {
-        "vendor_id": "",
-        "product_id": ""
+        "enabled": true,
+        "type": "disabled",
+        "usb_vendor_id": "0x04b8",
+        "usb_product_id": "0x0e28",
+        "bluetooth_port": "COM3",
+        "serial_port": "COM1",
+        "serial_baudrate": 9600,
+        "network_ip": "192.168.1.100",
+        "network_port": 9100,
+        "system_printer_name": ""
     },
     "shortcuts": [
         {

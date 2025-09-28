@@ -3,3 +3,4 @@ pyserial
 python-escpos
 pyqtgraph
 requests
+pywin32

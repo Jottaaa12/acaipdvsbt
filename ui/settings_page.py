@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QToolButton, QPushButton, QGridLayout, QScrollArea, 
-    QDialog, QFrame, QLineEdit, QComboBox, QMessageBox, QTabWidget
+    QWidget, QVBoxLayout, QLabel, QToolButton, QPushButton, QGridLayout, QScrollArea,
+    QDialog, QFrame, QLineEdit, QComboBox, QMessageBox, QTabWidget, QListWidget, QHBoxLayout
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
@@ -56,6 +56,8 @@ class SettingsButton(QToolButton):
         """)
 
 class SettingsPage(QWidget):
+    operation_mode_changed = pyqtSignal()
+
     def __init__(self, scale_handler, printer_handler, current_user, sales_page=None):
         super().__init__()
         self.scale_handler = scale_handler
@@ -253,15 +255,88 @@ class SettingsPage(QWidget):
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        layout.addWidget(QLabel("Deixe os campos em branco para usar o modo de simulação."), 1, 0, 1, 2)
+        # Tipo de impressora
+        layout.addWidget(QLabel("Tipo de Impressora:"), 0, 0)
+        self.printer_type_combo = QComboBox()
+        self.printer_type_combo.addItems([
+            "Desabilitada",
+            "Térmica (USB)",
+            "Térmica (Bluetooth)",
+            "Térmica (Serial)",
+            "Térmica (Rede)",
+            "Impressora do Sistema (A4)"
+        ])
+        self.printer_type_combo.currentTextChanged.connect(self.on_printer_type_changed)
+        layout.addWidget(self.printer_type_combo, 0, 1)
+
+        # Campos USB
+        self.usb_group = QWidget()
+        usb_layout = QVBoxLayout(self.usb_group)
+        usb_layout.setContentsMargins(0, 10, 0, 0)
 
         self.printer_vendor_id_input = QLineEdit(placeholderText="Ex: 0x04b8")
-        self.printer_product_id_input = QLineEdit(placeholderText="Ex: 0x0202")
+        self.printer_product_id_input = QLineEdit(placeholderText="Ex: 0x0e28")
 
-        layout.addWidget(QLabel("Vendor ID (Hex):"), 2, 0)
-        layout.addWidget(self.printer_vendor_id_input, 2, 1)
-        layout.addWidget(QLabel("Product ID (Hex):"), 3, 0)
-        layout.addWidget(self.printer_product_id_input, 3, 1)
+        usb_layout.addWidget(QLabel("Vendor ID (Hex):"))
+        usb_layout.addWidget(self.printer_vendor_id_input)
+        usb_layout.addWidget(QLabel("Product ID (Hex):"))
+        usb_layout.addWidget(self.printer_product_id_input)
+
+        # Campos Bluetooth
+        self.bluetooth_group = QWidget()
+        bluetooth_layout = QVBoxLayout(self.bluetooth_group)
+        bluetooth_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.bluetooth_port_input = QLineEdit(placeholderText="Ex: COM3")
+        self.bluetooth_search_button = QPushButton("Procurar Portas")
+        self.bluetooth_search_button.clicked.connect(self.search_com_ports)
+
+        bluetooth_layout.addWidget(QLabel("Porta Bluetooth:"))
+        bluetooth_layout.addWidget(self.bluetooth_port_input)
+        bluetooth_layout.addWidget(self.bluetooth_search_button)
+
+        # Campos Serial
+        self.serial_group = QWidget()
+        serial_layout = QVBoxLayout(self.serial_group)
+        serial_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.serial_port_input = QLineEdit(placeholderText="Ex: COM1")
+        self.serial_baudrate_input = QLineEdit(placeholderText="9600")
+        self.serial_search_button = QPushButton("Procurar Portas")
+        self.serial_search_button.clicked.connect(self.search_com_ports)
+
+        serial_layout.addWidget(QLabel("Porta Serial:"))
+        serial_layout.addWidget(self.serial_port_input)
+        serial_layout.addWidget(QLabel("Baudrate:"))
+        serial_layout.addWidget(self.serial_baudrate_input)
+        serial_layout.addWidget(self.serial_search_button)
+
+        # Campos Rede
+        self.network_group = QWidget()
+        network_layout = QVBoxLayout(self.network_group)
+        network_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.network_ip_input = QLineEdit(placeholderText="Ex: 192.168.1.100")
+        self.network_port_input = QLineEdit(placeholderText="9100")
+
+        network_layout.addWidget(QLabel("Endereço IP:"))
+        network_layout.addWidget(self.network_ip_input)
+        network_layout.addWidget(QLabel("Porta:"))
+        network_layout.addWidget(self.network_port_input)
+
+        # Adiciona todos os grupos ao layout principal
+        layout.addWidget(self.usb_group, 1, 0, 1, 2)
+        layout.addWidget(self.bluetooth_group, 2, 0, 1, 2)
+        layout.addWidget(self.serial_group, 3, 0, 1, 2)
+        layout.addWidget(self.network_group, 4, 0, 1, 2)
+
+        # Botão de teste
+        self.test_printer_button = QPushButton("Testar Impressora")
+        self.test_printer_button.clicked.connect(self.test_printer_connection)
+        layout.addWidget(self.test_printer_button, 5, 0, 1, 2)
+
+        # Inicialmente esconde todos os grupos
+        self.on_printer_type_changed("Desabilitada")
 
         return printer_group
 
@@ -313,7 +388,7 @@ class SettingsPage(QWidget):
 
     def load_hardware_config_to_ui(self):
         config = self.load_config()
-        
+
         # Geral
         hardware_mode = config.get('hardware_mode', 'test')
         self.hardware_mode_combo.setCurrentIndex(1 if hardware_mode == 'production' else 0)
@@ -327,14 +402,12 @@ class SettingsPage(QWidget):
         self.scale_parity_combo.setCurrentText(parity_map.get(scale_config.get('parity', 'N')))
         self.scale_stopbits_combo.setCurrentText(str(scale_config.get('stopbits', 1)))
 
-        # Impressora
-        printer_config = config.get('printer', {})
-        self.printer_vendor_id_input.setText(printer_config.get('vendor_id', ''))
-        self.printer_product_id_input.setText(printer_config.get('product_id', ''))
+        # Impressora - carrega as configurações usando o novo método
+        self.load_printer_config_to_ui()
 
     def save_all_hardware_config(self):
         config = self.load_config()
-        
+
         # Geral
         config['hardware_mode'] = 'production' if self.hardware_mode_combo.currentIndex() == 1 else 'test'
 
@@ -353,22 +426,12 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Erro de Formato", "As configurações da balança (Baudrate, etc.) contêm valores inválidos.")
             return
 
-        # Impressora
-        vendor_id_str = self.printer_vendor_id_input.text().strip()
-        product_id_str = self.printer_product_id_input.text().strip()
-        try:
-            if vendor_id_str: int(vendor_id_str, 16)
-            if product_id_str: int(product_id_str, 16)
-            config['printer'] = {
-                "vendor_id": vendor_id_str,
-                "product_id": product_id_str
-            }
-        except ValueError:
-            QMessageBox.warning(self, "Erro de Formato", "Vendor ID e Product ID da impressora devem ser valores hexadecimais válidos (ex: 0x04b8).")
-            return
+        # Impressora - usa o novo método de salvar
+        self.save_printer_config()
 
         self.save_config(config)
-        QMessageBox.information(self, "Sucesso", "Configurações de hardware salvas com sucesso! Reinicie o aplicativo para que todas as alterações entrem em vigor.")
+        QMessageBox.information(self, "Sucesso", "Configurações de hardware salvas com sucesso!")
+        self.operation_mode_changed.emit()
 
 
     def load_store_config_to_ui(self):
@@ -402,7 +465,175 @@ class SettingsPage(QWidget):
         self.scale_handler.reconfigure(mode=hardware_mode, **scale_config)
 
         # Informa o usuário sobre a ação
-        QMessageBox.information(self, "Configuração Aplicada", 
-                                "As novas configurações da balança foram aplicadas.\n\n" 
+        QMessageBox.information(self, "Configuração Aplicada",
+                                "As novas configurações da balança foram aplicadas.\n\n"
                                 "O sistema tentará se reconectar em segundo plano. "
                                 "Verifique o status no Dashboard.")
+
+    def on_printer_type_changed(self, printer_type):
+        """Mostra/esconde os campos de configuração baseado no tipo de impressora selecionado."""
+        # Esconde todos os grupos primeiro
+        self.usb_group.hide()
+        self.bluetooth_group.hide()
+        self.serial_group.hide()
+        self.network_group.hide()
+
+        # Mostra apenas o grupo relevante
+        if printer_type == "Térmica (USB)":
+            self.usb_group.show()
+        elif printer_type == "Térmica (Bluetooth)":
+            self.bluetooth_group.show()
+        elif printer_type == "Térmica (Serial)":
+            self.serial_group.show()
+        elif printer_type == "Térmica (Rede)":
+            self.network_group.show()
+        elif printer_type == "Impressora do Sistema (A4)":
+            # Para impressora do sistema, não precisamos de configurações adicionais
+            pass
+
+    def search_com_ports(self):
+        """Abre um diálogo para procurar e selecionar portas COM disponíveis."""
+        try:
+            from hardware.printer_handler import PrinterHandler
+            available_ports = PrinterHandler.get_available_com_ports()
+
+            if not available_ports:
+                QMessageBox.information(self, "Procurar Portas",
+                                      "Nenhuma porta COM foi encontrada no sistema.")
+                return
+
+            # Cria o diálogo de seleção de porta
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Selecionar Porta COM")
+            dialog.setModal(True)
+            dialog.resize(400, 300)
+
+            layout = QVBoxLayout(dialog)
+
+            # Lista de portas
+            port_list = QListWidget()
+            for port in available_ports:
+                port_list.addItem(port)
+
+            layout.addWidget(QLabel("Portas COM disponíveis:"))
+            layout.addWidget(port_list)
+
+            # Botões
+            button_layout = QHBoxLayout()
+
+            select_button = QPushButton("Selecionar")
+            select_button.clicked.connect(dialog.accept)
+            cancel_button = QPushButton("Cancelar")
+            cancel_button.clicked.connect(dialog.reject)
+
+            button_layout.addWidget(select_button)
+            button_layout.addWidget(cancel_button)
+            layout.addLayout(button_layout)
+
+            # Se o usuário selecionou uma porta, preenche o campo apropriado
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_port = port_list.currentItem()
+                if selected_port:
+                    port_name = selected_port.text()
+
+                    # Determina qual campo preencher baseado no botão que foi clicado
+                    sender = self.sender()
+                    if sender == self.bluetooth_search_button:
+                        self.bluetooth_port_input.setText(port_name)
+                    elif sender == self.serial_search_button:
+                        self.serial_port_input.setText(port_name)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Erro", f"Erro ao procurar portas COM: {e}")
+
+    def test_printer_connection(self):
+        """Testa a conexão com a impressora usando as configurações atuais."""
+        try:
+            # Salva as configurações atuais primeiro
+            self.save_printer_config()
+
+            # Recarrega a configuração
+            config = self.load_config()
+            printer_config = config.get('printer', {})
+
+            # Importa o PrinterHandler localmente
+            from hardware.printer_handler import PrinterHandler
+
+            # Cria um handler temporário para teste
+            temp_handler = PrinterHandler(printer_config)
+
+            # Testa a conexão
+            success, message = temp_handler.test_print()
+
+            if success:
+                QMessageBox.information(self, "Teste de Impressora",
+                                      f"Teste realizado com sucesso!\n\n{message}")
+            else:
+                QMessageBox.warning(self, "Teste de Impressora",
+                                  f"Falha no teste:\n\n{message}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao testar impressora: {e}")
+
+    def load_printer_config_to_ui(self):
+        """Carrega as configurações da impressora para a interface."""
+        config = self.load_config()
+        printer_config = config.get('printer', {})
+
+        # Tipo de impressora
+        type_mapping = {
+            'disabled': 'Desabilitada',
+            'thermal_usb': 'Térmica (USB)',
+            'thermal_bluetooth': 'Térmica (Bluetooth)',
+            'thermal_serial': 'Térmica (Serial)',
+            'thermal_network': 'Térmica (Rede)',
+            'system_printer': 'Impressora do Sistema (A4)'
+        }
+
+        printer_type = type_mapping.get(printer_config.get('type', 'disabled'), 'Desabilitada')
+        self.printer_type_combo.setCurrentText(printer_type)
+
+        # Campos USB
+        self.printer_vendor_id_input.setText(printer_config.get('usb_vendor_id', ''))
+        self.printer_product_id_input.setText(printer_config.get('usb_product_id', ''))
+
+        # Campos Bluetooth
+        self.bluetooth_port_input.setText(printer_config.get('bluetooth_port', ''))
+
+        # Campos Serial
+        self.serial_port_input.setText(printer_config.get('serial_port', ''))
+        self.serial_baudrate_input.setText(str(printer_config.get('serial_baudrate', 9600)))
+
+        # Campos Rede
+        self.network_ip_input.setText(printer_config.get('network_ip', ''))
+        self.network_port_input.setText(str(printer_config.get('network_port', 9100)))
+
+    def save_printer_config(self):
+        """Salva as configurações da impressora da interface."""
+        config = self.load_config()
+
+        # Mapeia o texto do combo para o valor interno
+        type_mapping = {
+            'Desabilitada': 'disabled',
+            'Térmica (USB)': 'thermal_usb',
+            'Térmica (Bluetooth)': 'thermal_bluetooth',
+            'Térmica (Serial)': 'thermal_serial',
+            'Térmica (Rede)': 'thermal_network',
+            'Impressora do Sistema (A4)': 'system_printer'
+        }
+
+        printer_type = type_mapping.get(self.printer_type_combo.currentText(), 'disabled')
+
+        printer_config = {
+            'type': printer_type,
+            'usb_vendor_id': self.printer_vendor_id_input.text().strip(),
+            'usb_product_id': self.printer_product_id_input.text().strip(),
+            'bluetooth_port': self.bluetooth_port_input.text().strip(),
+            'serial_port': self.serial_port_input.text().strip(),
+            'serial_baudrate': int(self.serial_baudrate_input.text()) if self.serial_baudrate_input.text() else 9600,
+            'network_ip': self.network_ip_input.text().strip(),
+            'network_port': int(self.network_port_input.text()) if self.network_port_input.text() else 9100,
+        }
+
+        config['printer'] = printer_config
+        self.save_config(config)
