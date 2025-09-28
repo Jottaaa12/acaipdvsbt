@@ -1,7 +1,8 @@
-
+import csv
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QHeaderView, QGroupBox, QGridLayout, QDateEdit, QTabWidget
+    QTableWidgetItem, QHeaderView, QGroupBox, QGridLayout, QDateEdit, QTabWidget,
+    QFileDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
@@ -13,6 +14,7 @@ class ReportsPage(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.current_report_data = None  # Armazena os dados do último relatório gerado
         self.setup_ui()
 
     def setup_ui(self):
@@ -71,6 +73,10 @@ class ReportsPage(QWidget):
         month_button = QPushButton("Este Mês")
         generate_button = QPushButton("Gerar Relatório")
         generate_button.setObjectName("modern_button_primary")
+        
+        export_button = QPushButton("Exportar para CSV")
+        export_button.clicked.connect(self.export_report_to_csv)
+
 
         filter_layout.addWidget(QLabel("De:"))
         filter_layout.addWidget(self.start_date_edit)
@@ -81,6 +87,7 @@ class ReportsPage(QWidget):
         filter_layout.addWidget(week_button)
         filter_layout.addWidget(month_button)
         filter_layout.addWidget(generate_button)
+        filter_layout.addWidget(export_button)
         layout.addWidget(filter_group)
 
         # Conexões dos botões de filtro
@@ -110,8 +117,8 @@ class ReportsPage(QWidget):
         payment_group = QGroupBox("Vendas por Forma de Pagamento")
         payment_layout = QVBoxLayout(payment_group)
         self.payment_table = QTableWidget()
-        self.payment_table.setColumnCount(3)
-        self.payment_table.setHorizontalHeaderLabels(["Forma de Pagamento", "Nº de Vendas", "Valor Total"])
+        self.payment_table.setColumnCount(4)
+        self.payment_table.setHorizontalHeaderLabels(["Forma de Pagamento", "Nº de Vendas", "Valor Total", "% do Faturamento"])
         self.payment_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         payment_layout.addWidget(self.payment_table)
         details_layout.addWidget(payment_group)
@@ -183,9 +190,13 @@ class ReportsPage(QWidget):
             elif difference < 0:
                 diff_item.setForeground(Qt.GlobalColor.red)
 
+            # Formata datas para string
+            open_time_str = item['open_time'].strftime('%d/%m/%Y %H:%M:%S') if item['open_time'] else ''
+            close_time_str = item['close_time'].strftime('%d/%m/%Y %H:%M:%S') if item['close_time'] else 'Em aberto'
+
             self.cash_history_table.setItem(row, 0, QTableWidgetItem(str(item['id'])))
-            self.cash_history_table.setItem(row, 1, QTableWidgetItem(item['open_time']))
-            self.cash_history_table.setItem(row, 2, QTableWidgetItem(item['close_time']))
+            self.cash_history_table.setItem(row, 1, QTableWidgetItem(open_time_str))
+            self.cash_history_table.setItem(row, 2, QTableWidgetItem(close_time_str))
             self.cash_history_table.setItem(row, 3, QTableWidgetItem(f"R$ {item['initial_amount']:.2f}"))
             self.cash_history_table.setItem(row, 4, QTableWidgetItem(f"R$ {item['expected_amount']:.2f}"))
             self.cash_history_table.setItem(row, 5, QTableWidgetItem(f"R$ {item['final_amount']:.2f}"))
@@ -214,9 +225,11 @@ class ReportsPage(QWidget):
         end_date = self.end_date_edit.date().toString("yyyy-MM-dd")
 
         report_data = db.get_sales_report(start_date, end_date)
+        self.current_report_data = report_data
 
         # Atualiza resumo
-        self.total_revenue_label.setText(f"R$ {report_data['total_revenue']:.2f}")
+        total_revenue = report_data['total_revenue']
+        self.total_revenue_label.setText(f"R$ {total_revenue:.2f}")
         self.total_sales_label.setText(str(report_data['total_sales_count']))
         self.avg_ticket_label.setText(f"R$ {report_data['average_ticket']:.2f}")
 
@@ -224,9 +237,37 @@ class ReportsPage(QWidget):
         self.payment_table.setRowCount(0)
         for row, item in enumerate(report_data['payment_methods']):
             self.payment_table.insertRow(row)
+            
+            percentage = (item['total'] / total_revenue * 100) if total_revenue > 0 else 0
+            
             self.payment_table.setItem(row, 0, QTableWidgetItem(item['payment_method']))
             self.payment_table.setItem(row, 1, QTableWidgetItem(str(item['count'])))
             self.payment_table.setItem(row, 2, QTableWidgetItem(f"R$ {item['total']:.2f}"))
+            self.payment_table.setItem(row, 3, QTableWidgetItem(f"{percentage:.1f}%"))
+
+        # Adiciona linha de totais
+        total_row = self.payment_table.rowCount()
+        self.payment_table.insertRow(total_row)
+        bold_font = QFont()
+        bold_font.setBold(True)
+
+        total_label_item = QTableWidgetItem("TOTAL")
+        total_label_item.setFont(bold_font)
+        
+        total_sales_item = QTableWidgetItem(str(report_data['total_sales_count']))
+        total_sales_item.setFont(bold_font)
+        
+        total_revenue_item = QTableWidgetItem(f"R$ {total_revenue:.2f}")
+        total_revenue_item.setFont(bold_font)
+        
+        total_percent_item = QTableWidgetItem("100.0%")
+        total_percent_item.setFont(bold_font)
+
+        self.payment_table.setItem(total_row, 0, total_label_item)
+        self.payment_table.setItem(total_row, 1, total_sales_item)
+        self.payment_table.setItem(total_row, 2, total_revenue_item)
+        self.payment_table.setItem(total_row, 3, total_percent_item)
+
 
         # Atualiza tabela de produtos
         self.products_table.setRowCount(0)
@@ -235,3 +276,53 @@ class ReportsPage(QWidget):
             self.products_table.setItem(row, 0, QTableWidgetItem(item['description']))
             self.products_table.setItem(row, 1, QTableWidgetItem(str(item['quantity_sold'])))
             self.products_table.setItem(row, 2, QTableWidgetItem(f"R$ {item['revenue']:.2f}"))
+
+    def export_report_to_csv(self):
+        if not self.current_report_data:
+            QMessageBox.warning(self, "Atenção", "Nenhum relatório foi gerado. Por favor, gere um relatório primeiro.")
+            return
+
+        default_filename = f"relatorio_vendas_{self.start_date_edit.date().toString('yyyy-MM-dd')}_a_{self.end_date_edit.date().toString('yyyy-MM-dd')}.csv"
+        
+        fileName, _ = QFileDialog.getSaveFileName(self, "Exportar Relatório para CSV", default_filename, "Arquivos CSV (*.csv);;Todos os Arquivos (*)")
+
+        if fileName:
+            try:
+                with open(fileName, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+
+                    # Escreve o resumo
+                    writer.writerow(["Resumo do Periodo", ""])
+                    writer.writerow(["Faturamento Total", f"R$ {self.current_report_data['total_revenue']:.2f}"])
+                    writer.writerow(["Total de Vendas", self.current_report_data['total_sales_count']])
+                    writer.writerow(["Ticket Medio", f"R$ {self.current_report_data['average_ticket']:.2f}"])
+                    writer.writerow([])  # Linha em branco
+
+                    # Escreve os detalhes por forma de pagamento
+                    writer.writerow(["Vendas por Forma de Pagamento", "N de Vendas", "Valor Total", "% do Faturamento"])
+                    total_revenue = self.current_report_data['total_revenue']
+                    for item in self.current_report_data['payment_methods']:
+                        percentage = (item['total'] / total_revenue * 100) if total_revenue > 0 else 0
+                        writer.writerow([
+                            item['payment_method'],
+                            item['count'],
+                            f"R$ {item['total']:.2f}",
+                            f"{percentage:.1f}%"
+                        ])
+                    writer.writerow([])  # Linha em branco
+
+                    # Escreve os detalhes dos produtos mais vendidos
+                    writer.writerow(["Produtos Mais Vendidos", "Quantidade Vendida", "Faturamento"])
+                    for item in self.current_report_data['top_products']:
+                        writer.writerow([
+                            item['description'],
+                            item['quantity_sold'],
+                            f"R$ {item['revenue']:.2f}"
+                        ])
+                
+                QMessageBox.information(self, "Sucesso", f"""Relatório exportado com sucesso para:
+{fileName}""")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Erro ao Exportar", f"""Ocorreu um erro ao salvar o arquivo CSV:
+{e}""")

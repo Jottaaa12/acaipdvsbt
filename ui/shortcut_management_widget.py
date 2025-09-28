@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QHeaderView
 )
 from PyQt6.QtCore import pyqtSignal, Qt
+from utils import get_data_path
 
 class ShortcutManagementWidget(QWidget):
     """
@@ -17,6 +18,7 @@ class ShortcutManagementWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Gerenciador de Atalhos Rápidos")
+        self.config_path = get_data_path('config.json')
         self.setup_ui()
         self.load_shortcuts()
 
@@ -67,7 +69,7 @@ class ShortcutManagementWidget(QWidget):
 
     def load_shortcuts(self):
         try:
-            with open('config.json', 'r', encoding='utf-8') as f:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             shortcuts = config.get("shortcuts", [])
         except (FileNotFoundError, json.JSONDecodeError):
@@ -88,14 +90,14 @@ class ShortcutManagementWidget(QWidget):
             shortcuts.append({"name": name, "barcode": barcode})
 
         try:
-            with open('config.json', 'r+', encoding='utf-8') as f:
+            with open(self.config_path, 'r+', encoding='utf-8') as f:
                 config = json.load(f)
                 config["shortcuts"] = shortcuts
                 f.seek(0)
                 json.dump(config, f, indent=4)
                 f.truncate()
         except FileNotFoundError:
-            with open('config.json', 'w', encoding='utf-8') as f:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump({"shortcuts": shortcuts}, f, indent=4)
 
         self.shortcuts_changed.emit()

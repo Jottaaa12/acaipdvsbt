@@ -1,25 +1,25 @@
-'''
-Página de Gestão de Caixa Refatorada
-
-Este arquivo implementa a nova interface de três colunas para a gestão de caixa,
-seguindo as especificações do projeto de refatoração.
-'''
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QGroupBox, QGridLayout,
     QFrame, QSplitter, QTabWidget, QDateEdit, QComboBox, QInputDialog, QTextEdit, QLineEdit
 )
-from PyQt6.QtCore import Qt, QTimer, QDate
+from PyQt6.QtCore import Qt, QTimer, QDate, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from datetime import datetime
+
 import database as db
 from ui.theme import ModernTheme, IconTheme
 from utils import format_currency, parse_currency
+from ui.cash_manager import CashManager
+from ui.cash_closing_dialog import CashClosingDialog
 
 class CashPage(QWidget):
     '''Página refatorada para uma gestão de caixa moderna e completa.'''
+
+    # Sinal emitido quando o estado do caixa muda (aberto/fechado)
+    cash_session_changed = pyqtSignal()
 
     def __init__(self, current_user):
         super().__init__()
@@ -27,36 +27,37 @@ class CashPage(QWidget):
         self.session_id = None
         self.operators = []
 
+        # Gerenciador de operações de caixa assíncronas
+        self.cash_manager = CashManager()
+        self.cash_manager.session_opened.connect(self.on_session_opened)
+        self.cash_manager.session_closed.connect(self.on_session_closed)
+        self.cash_manager.status_updated.connect(self.on_status_updated)
+
         self.setup_ui()
         self.load_initial_data()
 
-        # Timer para alertas e atualizações em tempo real
+        # Timer para atualizações em tempo real (pode ser menos frequente agora)
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_live_data)
-        self.update_timer.start(5000) # Verifica a cada 5 segundos
+        self.update_timer.start(30000) # Atualiza a cada 30 segundos
 
     def setup_ui(self):
-        '''Configura a interface principal com o layout de três colunas.'''
         main_layout = QHBoxLayout(self)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(splitter)
 
-        # --- Coluna 1: Ações e Status ---
         col1_widget = self.create_left_column()
         splitter.addWidget(col1_widget)
 
-        # --- Coluna 2: Resumo Financeiro ---
         col2_widget = self.create_center_column()
         splitter.addWidget(col2_widget)
 
-        # --- Coluna 3: Detalhes e Histórico ---
         col3_widget = self.create_right_column()
         splitter.addWidget(col3_widget)
 
         splitter.setSizes([250, 400, 350])
 
     def load_initial_data(self):
-        '''Carrega dados que não mudam com frequência, como a lista de operadores.'''
         self.operators = db.get_all_users()
         self.history_operator_filter.addItem("Todos", userData=None)
         for op in self.operators:
@@ -66,10 +67,10 @@ class CashPage(QWidget):
         self.load_session_history()
 
     def update_live_data(self):
-        '''Função principal que atualiza todos os dados da página.'''
-        session = db.get_current_cash_session()
-        self.session_id = session['id'] if session else None
+        self.cash_manager.get_status_async()
 
+    def on_status_updated(self, session):
+        self.session_id = session['id'] if session else None
         self.update_status_card(session)
         self.update_buttons_state(bool(session))
 
@@ -91,10 +92,9 @@ class CashPage(QWidget):
         layout = QVBoxLayout(widget)
         layout.setSpacing(15)
 
-        # Card de Status
         self.status_card = QGroupBox("Status do Caixa")
         status_layout = QVBoxLayout(self.status_card)
-        self.status_label = QLabel("CAIXA FECHADO")
+        self.status_label = QLabel("VERIFICANDO...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         status_layout.addWidget(self.status_label)
@@ -116,7 +116,6 @@ class CashPage(QWidget):
         details_layout.addWidget(self.initial_amount_label, 3, 1)
         status_layout.addWidget(self.status_details_widget)
 
-        # Card de Ações
         actions_card = QGroupBox("Ações")
         actions_layout = QVBoxLayout(actions_card)
         self.open_cash_button = QPushButton(f'{IconTheme.get_icon("open")} Abrir Caixa')
@@ -155,12 +154,18 @@ class CashPage(QWidget):
             self.status_label.setStyleSheet(f"background-color: {ModernTheme.ERROR}; color: white; padding: 8px; border-radius: 5px;")
             self.status_details_widget.setVisible(False)
 
-    def update_buttons_state(self, is_open):
-        self.open_cash_button.setEnabled(not is_open)
-        self.close_cash_button.setEnabled(is_open)
-        self.supply_button.setEnabled(is_open)
-        self.withdrawal_button.setEnabled(is_open)
+    def update_buttons_state(self, is_open, is_busy=False):
+        if is_busy:
+            self.open_cash_button.setEnabled(False)
+            self.close_cash_button.setEnabled(False)
+        else:
+            self.open_cash_button.setEnabled(not is_open)
+            self.close_cash_button.setEnabled(is_open)
+        
+        self.supply_button.setEnabled(is_open and not is_busy)
+        self.withdrawal_button.setEnabled(is_open and not is_busy)
 
+    # ... (O resto das colunas central e direita permanecem as mesmas) ...
     # ==========================================================================
     # --- Coluna 2: Resumo Financeiro
     # ==========================================================================
@@ -262,7 +267,6 @@ class CashPage(QWidget):
     def create_right_column(self):
         self.tabs = QTabWidget()
 
-        # Aba 1: Últimas Movimentações
         movements_tab = QWidget()
         movements_layout = QVBoxLayout(movements_tab)
         self.movements_table = QTableWidget(0, 4)
@@ -271,7 +275,6 @@ class CashPage(QWidget):
         self.movements_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         movements_layout.addWidget(self.movements_table)
 
-        # Aba 2: Histórico de Sessões
         history_tab = QWidget()
         history_layout = QVBoxLayout(history_tab)
         filter_widget = self.create_history_filters()
@@ -283,7 +286,6 @@ class CashPage(QWidget):
         history_layout.addWidget(filter_widget)
         history_layout.addWidget(self.history_table)
 
-        # Aba 3: Relatório da Sessão
         report_tab = QWidget()
         report_layout = QVBoxLayout(report_tab)
         self.report_display = QTextEdit()
@@ -293,7 +295,7 @@ class CashPage(QWidget):
         self.tabs.addTab(movements_tab, "Últimas Movimentações")
         self.tabs.addTab(history_tab, "Histórico de Sessões")
         self.tabs.addTab(report_tab, "Relatório da Sessão")
-        self.tabs.setTabEnabled(2, False) # Desabilitar aba de relatório por padrão
+        self.tabs.setTabEnabled(2, False)
 
         return self.tabs
 
@@ -367,7 +369,7 @@ class CashPage(QWidget):
             return
 
         s = report['session']
-        total_sales = sum(Decimal(p['total']) for p in report['sales']) # Novo cálculo
+        total_sales = sum(Decimal(p['total']) for p in report['sales'])
 
         html = f"""
         <h1>Relatório da Sessão #{s['id']}</h1>
@@ -404,24 +406,56 @@ class CashPage(QWidget):
         if not ok: return
         try:
             initial_amount = parse_currency(amount_text)
-            session_id, msg = db.open_cash_session(self.current_user['id'], initial_amount)
-            if session_id:
-                QMessageBox.information(self, "Sucesso", f"Caixa aberto com ID: {session_id}")
-                self.update_live_data()
-            else:
-                QMessageBox.warning(self, "Erro", msg)
+            self.open_cash_button.setText("Abrindo...")
+            self.update_buttons_state(is_open=False, is_busy=True)
+            self.cash_manager.open_session_async(self.current_user['id'], initial_amount)
         except InvalidOperation:
             QMessageBox.warning(self, "Valor Inválido", "O valor digitado não é um número válido.")
 
+    def on_session_opened(self, success, message):
+        self.open_cash_button.setText(f'{IconTheme.get_icon("open")} Abrir Caixa')
+        if success:
+            QMessageBox.information(self, "Sucesso", f"Caixa aberto com ID: {message}")
+            self.update_live_data()
+            self.cash_session_changed.emit()
+        else:
+            QMessageBox.warning(self, "Erro", message)
+        self.update_buttons_state(is_open=success, is_busy=False)
+
     def handle_close_cash(self):
-        from ui.cash_closing_dialog import CashClosingDialog # Importação local
-        dialog = CashClosingDialog(self.session_id, self.current_user, self)
-        if dialog.exec():
+        self.close_cash_dialog = CashClosingDialog(self.session_id, self.current_user, self)
+        self.close_cash_dialog.closing_confirmed.connect(self.on_closing_confirmed)
+        self.close_cash_dialog.show() # Usar show() em vez de exec() para não bloquear
+
+    def on_closing_confirmed(self, data):
+        self.update_buttons_state(is_open=True, is_busy=True)
+        self.close_cash_button.setText("Fechando...")
+        self.cash_manager.close_session_async(
+            session_id=self.session_id,
+            user_id=self.current_user['id'],
+            final_amount=data['final_amount'],
+            cash_counts={},
+            observations=data['observations']
+        )
+
+    def on_session_closed(self, success, message):
+        self.close_cash_button.setText(f'{IconTheme.get_icon("close")} Fechar Caixa')
+        if hasattr(self, 'close_cash_dialog') and self.close_cash_dialog.isVisible():
+            self.close_cash_dialog.accept() # Fecha o diálogo
+
+        if success:
+            QMessageBox.information(self, "Caixa Fechado", message)
             self.update_live_data()
             self.load_session_history()
-            QMessageBox.information(self, "Caixa Fechado", "A sessão de caixa foi fechada com sucesso.")
+            self.cash_session_changed.emit()
+        else:
+            QMessageBox.critical(self, "Erro ao Fechar o Caixa", message)
+        
+        self.update_buttons_state(is_open=False, is_busy=False)
 
     def handle_cash_movement(self, m_type):
+        # Esta função ainda é síncrona, mas geralmente é rápida.
+        # Poderia ser movida para o CashManager se necessário.
         title = "Suprimento" if m_type == 'suprimento' else "Sangria"
         amount_text, ok = QInputDialog.getText(self, title, f"Valor do {title.lower()}:", text="0,00")
         if not ok: return
@@ -438,7 +472,6 @@ class CashPage(QWidget):
                 return
 
             authorized_by_id = None
-            # Exigir senha de gerente para valores altos
             if amount > 50:
                 manager_user, ok_user = QInputDialog.getText(self, "Autorização Necessária", "Usuário do gerente:")
                 if not ok_user: return
@@ -461,23 +494,22 @@ class CashPage(QWidget):
             QMessageBox.warning(self, "Valor Inválido", "O valor digitado não é um número válido.")
 
     def check_for_alerts(self, session):
-        # Alerta 1: Duração da sessão
-        open_duration = datetime.now() - session['open_time']
-        if open_duration.total_seconds() > 24 * 3600: # 24 horas
-            self.status_card.setStyleSheet(f"QGroupBox {{ border: 2px solid {ModernTheme.WARNING}; }}")
-        else:
-            self.status_card.setStyleSheet("")
-
-        # Alerta 2: Limite de dinheiro em caixa
-        expected_cash_str = self.summary_expected_cash.text().replace("R$", "").strip()
+        if not session or not session.get('open_time'): return
         try:
+            open_duration = datetime.now() - session['open_time']
+            if open_duration.total_seconds() > 24 * 3600:
+                self.status_card.setStyleSheet(f"QGroupBox {{ border: 2px solid {ModernTheme.WARNING}; }}")
+            else:
+                self.status_card.setStyleSheet("")
+
+            expected_cash_str = self.summary_expected_cash.text().replace("R$", "").strip()
             expected_cash = parse_currency(expected_cash_str)
             if expected_cash > 1000:
                 self.summary_expected_cash.setStyleSheet(f"color: {ModernTheme.ERROR}; font-weight: bold;")
             else:
                 self.summary_expected_cash.setStyleSheet("")
-        except InvalidOperation:
-            pass # Ignora se o valor ainda não for um número válido
+        except (InvalidOperation, TypeError): # TypeError para open_time que pode ser string
+            pass
 
     def closeEvent(self, event):
         self.update_timer.stop()

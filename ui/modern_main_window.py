@@ -681,15 +681,20 @@ class ModernMainWindow(QMainWindow):
         self.content_area.addWidget(self.pages["sales_history"])
 
         # Settings
-        self.pages["settings"] = SettingsPage(self.scale_handler, self.printer_handler, self.current_user)
+        self.pages["settings"] = SettingsPage(
+            scale_handler=self.scale_handler, 
+            printer_handler=self.printer_handler, 
+            current_user=self.current_user,
+            sales_page=self.pages["sales"]  # Injetando a dependência
+        )
         self.content_area.addWidget(self.pages["settings"])
-
-        # Conecta o sinal da página de configurações ao slot da página de vendas
-        self.pages["settings"].shortcuts_updated.connect(self.pages["sales"].reload_shortcuts)
 
         # Cash
         self.pages["cash"] = CashPage(self.current_user)
         self.content_area.addWidget(self.pages["cash"])
+
+        # Conecta o sinal de mudança de sessão da página de caixa
+        self.pages["cash"].cash_session_changed.connect(self.check_cash_session)
 
         # Reports Page
         self.pages["reports"] = ReportsPage()
@@ -775,7 +780,7 @@ class ModernMainWindow(QMainWindow):
     
     def update_data(self):
         """Atualiza dados do dashboard"""
-        self.check_cash_session()
+        # self.check_cash_session() # Removido: agora é baseado em evento
         if "dashboard" in self.pages:
             self.pages["dashboard"].update_dashboard_data()
     

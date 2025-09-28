@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
 
 import json
+from utils import get_data_path
 from ui.theme import ModernTheme, IconTheme
 from ui.group_management_widget import GroupManagementWidget
 from ui.payment_method_management_widget import PaymentMethodManagementWidget
@@ -55,13 +56,12 @@ class SettingsButton(QToolButton):
         """)
 
 class SettingsPage(QWidget):
-    shortcuts_updated = pyqtSignal()
-
-    def __init__(self, scale_handler, printer_handler, current_user):
+    def __init__(self, scale_handler, printer_handler, current_user, sales_page=None):
         super().__init__()
         self.scale_handler = scale_handler
         self.printer_handler = printer_handler
         self.current_user = current_user
+        self.sales_page = sales_page
         self.setup_ui()
 
     def setup_ui(self):
@@ -121,8 +121,9 @@ class SettingsPage(QWidget):
     def open_shortcut_management(self):
         """Abre o diálogo de gerenciamento de atalhos."""
         widget = ShortcutManagementWidget()
-        # Propaga o sinal para a janela principal
-        widget.shortcuts_changed.connect(self.shortcuts_updated)
+        # Conecta o sinal do widget diretamente ao slot da página de vendas
+        if self.sales_page:
+            widget.shortcuts_changed.connect(self.sales_page.reload_shortcuts)
         self._create_modal_dialog("Gerenciar Atalhos Rápidos", widget)
 
     def open_audit_log(self):
@@ -294,13 +295,13 @@ class SettingsPage(QWidget):
 
     def load_config(self):
         try:
-            with open('config.json', 'r', encoding='utf-8') as f:
+            with open(get_data_path('config.json'), 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
     def save_config(self, config):
-        with open('config.json', 'w', encoding='utf-8') as f:
+        with open(get_data_path('config.json'), 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4)
 
     def load_hardware_config_to_ui(self):

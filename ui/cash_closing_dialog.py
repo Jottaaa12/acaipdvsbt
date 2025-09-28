@@ -1,24 +1,21 @@
-
-'''
-Dialog Aprimorado para Fechamento de Caixa
-
-Foco em contagem, observações e um relatório final claro.
-'''
-
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, 
     QGridLayout, QGroupBox, QTextEdit, QDialogButtonBox, QLineEdit
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import database as db
-from utils import format_currency, parse_currency, to_reais
+from utils import format_currency, parse_currency
 
 class CashClosingDialog(QDialog):
     '''Dialog focado na contagem de dinheiro e exibição de um relatório final.'''
     
+    # Sinal emitido com os dados de fechamento quando o usuário confirma.
+    # O dicionário contém: final_amount, observations
+    closing_confirmed = pyqtSignal(dict)
+
     def __init__(self, session_id, current_user, parent=None):
         super().__init__(parent)
         self.session_id = session_id
@@ -35,12 +32,10 @@ class CashClosingDialog(QDialog):
     def setup_ui(self):
         self.layout = QVBoxLayout(self)
         
-        # --- Passo 1: Contagem e Observações ---
         self.counting_widget = QWidget()
         self.setup_counting_ui(self.counting_widget)
         self.layout.addWidget(self.counting_widget)
 
-        # --- Passo 2: Relatório Final (inicialmente oculto) ---
         self.report_widget = QWidget()
         self.setup_report_ui(self.report_widget)
         self.layout.addWidget(self.report_widget)
@@ -53,7 +48,6 @@ class CashClosingDialog(QDialog):
         title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         layout.addWidget(title)
 
-        # Campo para valor contado em dinheiro
         cash_group = QGroupBox("Dinheiro")
         cash_layout = QGridLayout(cash_group)
         cash_layout.addWidget(QLabel("Total contado em dinheiro (cédulas + moedas): "), 0, 0)
@@ -62,7 +56,6 @@ class CashClosingDialog(QDialog):
         cash_layout.addWidget(self.counted_cash_input, 0, 1)
         layout.addWidget(cash_group)
 
-        # Campo para observações
         obs_group = QGroupBox("Observações")
         obs_layout = QVBoxLayout(obs_group)
         self.observations_input = QTextEdit()
@@ -70,7 +63,6 @@ class CashClosingDialog(QDialog):
         obs_layout.addWidget(self.observations_input)
         layout.addWidget(obs_group)
 
-        # Botões de ação
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Gerar Relatório de Fechamento")
         button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
@@ -91,17 +83,16 @@ class CashClosingDialog(QDialog):
         self.final_report_display.setFont(QFont("Courier New", 10))
         layout.addWidget(self.final_report_display)
 
-        # Botões de ação
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Confirmar e Fechar Caixa")
+        self.confirm_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
+        self.confirm_button.setText("Confirmar e Fechar Caixa")
         button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("Voltar")
-        button_box.accepted.connect(self.confirm_close_cash)
+        button_box.accepted.connect(self.confirm_and_emit)
         button_box.rejected.connect(self.back_to_counting)
         layout.addWidget(button_box)
         self.report_buttons = button_box
 
     def load_expected_values(self):
-        '''Carrega os valores esperados do banco de dados para o cálculo.'''
         report = db.get_cash_session_report(self.session_id)
         if not report or not report['session']:
             QMessageBox.critical(self, "Erro", "Não foi possível carregar os dados da sessão de caixa.")
@@ -131,7 +122,6 @@ class CashClosingDialog(QDialog):
         }
 
     def show_final_report(self):
-        '''Calcula os totais, gera o relatório e muda para a visualização de relatório.'''
         try:
             counted_cash = parse_currency(self.counted_cash_input.text())
         except InvalidOperation:
@@ -142,18 +132,14 @@ class CashClosingDialog(QDialog):
         difference = counted_cash - expected_cash
         observations = self.observations_input.toPlainText().strip()
 
-        # Armazena os valores para o fechamento final
         self.final_data = {
-            "counted_cash": counted_cash,
-            "difference": difference,
+            "final_amount": counted_cash,
             "observations": observations
         }
 
-        # Gera o texto do relatório
         report_text = self.generate_report_text(counted_cash, difference, observations)
         self.final_report_display.setText(report_text)
 
-        # Alterna as visualizações
         self.counting_widget.setVisible(False)
         self.report_widget.setVisible(True)
         self.adjustSize()
@@ -205,25 +191,18 @@ class CashClosingDialog(QDialog):
             f"{ '='*50}\n"
         )
 
-    def confirm_close_cash(self):
-        """Submete os dados finais e fecha o caixa no banco de dados."""
+    def confirm_and_emit(self):
+        """Emite o sinal com os dados de fechamento e fecha o diálogo."""
         if not self.final_data:
             QMessageBox.critical(self, "Erro", "Não há dados finais para submeter.")
             return
+        
+        # Desabilita o botão para evitar cliques duplos
+        self.confirm_button.setEnabled(False)
+        self.confirm_button.setText("Fechando...")
 
-        success, result = db.close_cash_session(
-            session_id=self.session_id,
-            user_id=self.current_user['id'],
-            final_amount=self.final_data['counted_cash'],
-            cash_counts={},  # O UI simplificado não tem contagem por denominação
-            observations=self.final_data['observations']
-        )
-
-        if success:
-            QMessageBox.information(self, "Sucesso", "Caixa fechado com sucesso!")
-            self.accept()  # Fecha o diálogo
-        else:
-            QMessageBox.critical(self, "Erro ao Fechar o Caixa", str(result))
+        self.closing_confirmed.emit(self.final_data)
+        # O diálogo não será fechado aqui. A CashPage o fechará quando receber a confirmação do worker.
 
     def back_to_counting(self):
         """Volta para a tela de contagem para corrigir ou revisar."""
