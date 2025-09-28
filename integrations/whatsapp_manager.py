@@ -1,19 +1,39 @@
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
-from PyQt6.QtGui import QPixmap, QImage
-import base64
-import io
 from datetime import datetime
-import whatsappy
+import os
+import json
+import subprocess
+import threading
+import queue
+import time
+import shutil
+import traceback
+
+# Utilitário para caminho de dados persistentes
+try:
+    from utils import get_data_path
+except Exception:
+    # Fallback simples se utilitário não estiver disponível
+    def get_data_path(name: str) -> str:
+        return os.path.join(os.getcwd(), name)
+
+# Renderização de QR via Python (sem browser)
+try:
+    import qrcode
+except Exception:
+    qrcode = None
+
 
 class WhatsAppManager(QObject):
     """
-    Gerenciador de WhatsApp usando whatsappy-py para notificações.
-    Implementa o padrão Singleton para garantir uma única instância.
+    Integração WhatsApp sem navegador usando uma bridge Node.js (Baileys).
+    Mantém robustez via QThread e sinais Qt.
     """
 
-    # Sinais para comunicação com a interface
-    qr_code_updated = pyqtSignal(QPixmap)
-    status_updated = pyqtSignal(str)
+    # Novos sinais
+    qr_code_ready = pyqtSignal(str)      # caminho do arquivo PNG do QR
+    status_updated = pyqtSignal(str)     # mensagens de status
+    error_occurred = pyqtSignal(str)     # mensagens de erro
 
     _instance = None
 
@@ -27,215 +47,388 @@ class WhatsAppManager(QObject):
         if not self._initialized:
             super().__init__()
             self._initialized = True
+
+            # Compatibilidade com código legado (não é usado aqui)
             self.client = None
+
             self.is_ready = False
-            self.qr_code_data = None
-            self._worker_thread = None
+            self._worker_thread: WhatsAppWorker | None = None
 
     def connect(self):
         """
-        Inicia a conexão com o WhatsApp Web.
-        Cria o cliente e registra os event handlers.
+        Inicia/reativa a conexão com o WhatsApp via bridge Node (sem navegador).
+        Não bloqueia a UI.
         """
         try:
-            if self.client is not None:
-                print(f"[{datetime.now()}] WhatsApp: Cliente já existe, desconectando primeiro...")
-                self.disconnect()
+            # Se já está rodando, evita múltiplas instâncias
+            if self._worker_thread and self._worker_thread.isRunning():
+                self.status_updated.emit("🔄 Já conectando/conectado")
+                return
 
-            print(f"[{datetime.now()}] WhatsApp: Iniciando conexão...")
             self.status_updated.emit("Iniciando conexão...")
-
-            # Criar cliente whatsappy com tratamento de erro
-            try:
-                self.client = whatsappy.Whatsapp()
-                print(f"[{datetime.now()}] WhatsApp: Cliente criado com sucesso")
-            except Exception as client_error:
-                print(f"[{datetime.now()}] WhatsApp: Erro ao criar cliente - {str(client_error)}")
-                self.status_updated.emit(f"Erro ao criar cliente: {str(client_error)}")
-                return
-
-            # Registrar event handlers com tratamento de erro
-            try:
-                self.client.event(self.on_qr)
-                self.client.event(self.on_ready)
-                self.client.event(self.on_disconnect)
-                print(f"[{datetime.now()}] WhatsApp: Event handlers registrados")
-            except Exception as event_error:
-                print(f"[{datetime.now()}] WhatsApp: Erro ao registrar handlers - {str(event_error)}")
-                self.status_updated.emit(f"Erro nos handlers: {str(event_error)}")
-                return
-
-            # Executar em thread separada para não bloquear a UI
-            try:
-                self._worker_thread = WhatsAppWorker(self.client)
-                self._worker_thread.start()
-                print(f"[{datetime.now()}] WhatsApp: Thread iniciada com sucesso")
-            except Exception as thread_error:
-                print(f"[{datetime.now()}] WhatsApp: Erro ao iniciar thread - {str(thread_error)}")
-                self.status_updated.emit(f"Erro na thread: {str(thread_error)}")
-                return
-
-            print(f"[{datetime.now()}] WhatsApp: Cliente criado e thread iniciada")
-
+            self._worker_thread = WhatsAppWorker(self)
+            self._worker_thread.start()
         except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro geral ao conectar - {str(e)}")
-            import traceback
-            print(f"[{datetime.now()}] WhatsApp: Traceback - {traceback.format_exc()}")
-            self.status_updated.emit(f"Erro ao conectar: {str(e)}")
+            self.error_occurred.emit(f"Falha ao iniciar conexão: {e}")
 
-    def on_qr(self, qr_code_base64):
+    def send_message(self, phone_number: str, message: str) -> bool:
         """
-        Handler para quando o QR code é gerado.
-        Converte o base64 para QPixmap e emite o sinal.
+        Enfileira o envio de mensagem para execução no worker.
+        Nunca bloqueia a UI.
         """
-        try:
-            print(f"[{datetime.now()}] WhatsApp: QR Code recebido")
-
-            # Decodificar base64
-            qr_data = base64.b64decode(qr_code_base64)
-
-            # Criar QImage a partir dos dados
-            image = QImage.fromData(qr_data, "PNG")
-
-            if not image.isNull():
-                # Converter para QPixmap
-                pixmap = QPixmap.fromImage(image)
-
-                # Emitir sinal para a UI
-                self.qr_code_updated.emit(pixmap)
-                self.status_updated.emit("Aguardando QR Code")
-                print(f"[{datetime.now()}] WhatsApp: QR Code processado e enviado para UI")
-            else:
-                print(f"[{datetime.now()}] WhatsApp: Erro ao processar QR Code - imagem nula")
-
-        except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro ao processar QR Code - {str(e)}")
-            self.status_updated.emit(f"Erro no QR Code: {str(e)}")
-
-    def on_ready(self):
-        """
-        Handler para quando o WhatsApp está conectado e pronto.
-        """
-        try:
-            print(f"[{datetime.now()}] WhatsApp: Conectado com sucesso!")
-            self.is_ready = True
-            self.status_updated.emit("Conectado")
-
-        except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro no handler on_ready - {str(e)}")
-
-    def on_disconnect(self):
-        """
-        Handler para quando o WhatsApp é desconectado.
-        """
-        try:
-            print(f"[{datetime.now()}] WhatsApp: Desconectado")
-            self.is_ready = False
-            self.status_updated.emit("Desconectado")
-
-        except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro no handler on_disconnect - {str(e)}")
-
-    def send_message(self, phone_number, message):
-        """
-        Envia uma mensagem via WhatsApp.
-
-        Args:
-            phone_number (str): Número do telefone no formato internacional
-            message (str): Mensagem a ser enviada
-
-        Returns:
-            bool: True se enviado com sucesso, False caso contrário
-        """
-        if not self.is_ready or self.client is None:
-            print(f"[{datetime.now()}] WhatsApp: Cliente não está pronto para enviar mensagens")
+        if not self._worker_thread or not self._worker_thread.isRunning():
+            print(f"[{datetime.now()}] WhatsApp: Worker não está em execução")
             return False
-
         try:
-            print(f"[{datetime.now()}] WhatsApp: Enviando mensagem para {phone_number}")
-
-            # Abrir conversa
-            self.client.open_chat(phone_number)
-
-            # Enviar mensagem
-            self.client.send_message(message)
-
-            print(f"[{datetime.now()}] WhatsApp: Mensagem enviada com sucesso para {phone_number}")
+            self._worker_thread.enqueue_send(phone_number, message)
             return True
-
         except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro ao enviar mensagem para {phone_number} - {str(e)}")
+            print(f"[{datetime.now()}] WhatsApp: Erro ao enfileirar envio - {e}")
             return False
 
     def disconnect(self):
         """
-        Desconecta do WhatsApp e limpa o estado.
+        Encerra a bridge e limpa o estado local.
         """
         try:
-            print(f"[{datetime.now()}] WhatsApp: Desconectando...")
-
-            if self.client:
-                self.client.close()
-                self.client = None
-
-            if self._worker_thread and self._worker_thread.isRunning():
+            if self._worker_thread:
                 self._worker_thread.stop()
+                self._worker_thread.wait(5000)
                 self._worker_thread = None
-
             self.is_ready = False
             self.status_updated.emit("Desconectado")
-
-            print(f"[{datetime.now()}] WhatsApp: Desconectado com sucesso")
-
         except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro ao desconectar - {str(e)}")
+            print(f"[{datetime.now()}] WhatsApp: Erro ao desconectar - {e}")
 
 
 class WhatsAppWorker(QThread):
     """
-    Thread worker para executar o cliente WhatsApp sem bloquear a UI.
+    Executa a bridge Node.js (Baileys) em um processo separado e comunica via STDIN/STDOUT (NDJSON).
+    Garante que a UI continue responsiva e reporta eventos por sinais.
     """
 
-    def __init__(self, client):
+    def __init__(self, manager: WhatsAppManager):
         super().__init__()
-        self.client = client
-        self._running = False
+        self.manager = manager
+        self._running = threading.Event()
+        self._running.set()
+        self._send_queue: "queue.Queue[dict]" = queue.Queue()
+        self.process: subprocess.Popen | None = None
+
+        # Caminhos persistentes
+        self.session_path = get_data_path("whatsapp_session.json")
+        self.qr_image_path = get_data_path("qr.png")
+        self.bridge_path = get_data_path("wa_bridge.js")
 
     def run(self):
-        """
-        Executa o loop principal do cliente WhatsApp.
-        """
         try:
-            self._running = True
-            print(f"[{datetime.now()}] WhatsApp Worker: Iniciando loop do cliente...")
+            os.makedirs(os.path.dirname(self.session_path), exist_ok=True)
+            self._write_bridge_script()
 
-            if self.client is None:
-                print(f"[{datetime.now()}] WhatsApp Worker: Cliente é None, saindo...")
-                return
+            node_cmd = self._find_node_command()
+            if node_cmd is None:
+                raise RuntimeError("Node.js não encontrado no sistema. Instale o Node e execute novamente.")
 
-            # Executar o cliente (isso bloqueia até a desconexão)
-            try:
-                self.client.run()
-            except Exception as client_error:
-                print(f"[{datetime.now()}] WhatsApp Worker: Erro no client.run() - {str(client_error)}")
-                import traceback
-                print(f"[{datetime.now()}] WhatsApp Worker: Traceback - {traceback.format_exc()}")
+            args = [node_cmd, self.bridge_path, self.session_path]
+            self.manager.status_updated.emit("🔌 Iniciando bridge WhatsApp...")
+            self.process = subprocess.Popen(
+                args,
+                cwd=os.path.dirname(self.bridge_path) or None,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                creationflags=(subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0),
+            )
+
+            # Threads auxiliares
+            threading.Thread(target=self._read_stdout, daemon=True).start()
+            threading.Thread(target=self._read_stderr, daemon=True).start()
+            threading.Thread(target=self._sender_loop, daemon=True).start()
+
+            # Tentativa de reconexão com sessão salva
+            if os.path.exists(self.session_path):
+                self.manager.status_updated.emit("🔎 Tentando reconectar usando sessão salva...")
+
+            # Loop de vida
+            while self._running.is_set():
+                if self.process.poll() is not None:
+                    break
+                time.sleep(0.2)
+
+            # Encerramento gracioso
+            if self.process and self.process.poll() is None:
+                try:
+                    self.process.terminate()
+                    self.process.wait(timeout=3)
+                except Exception:
+                    try:
+                        self.process.kill()
+                    except Exception:
+                        pass
 
         except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp Worker: Erro geral no loop - {str(e)}")
-            import traceback
-            print(f"[{datetime.now()}] WhatsApp Worker: Traceback - {traceback.format_exc()}")
+            tb = traceback.format_exc()
+            print(f"[{datetime.now()}] WhatsApp Worker: Exceção - {e}\n{tb}")
+            self.manager.error_occurred.emit(str(e))
         finally:
-            self._running = False
-            print(f"[{datetime.now()}] WhatsApp Worker: Loop finalizado")
+            self.manager.is_ready = False
 
     def stop(self):
-        """
-        Para o worker thread.
-        """
-        self._running = False
-        if self.client:
+        self._running.clear()
+        # Solicita desligamento ao bridge
+        try:
+            self._write_stdin_json({"action": "shutdown"})
+        except Exception:
+            pass
+
+    def enqueue_send(self, phone: str, message: str):
+        self._send_queue.put({"action": "send", "phone": phone, "message": message})
+
+    def _sender_loop(self):
+        while self._running.is_set():
             try:
-                self.client.close()
-            except:
-                pass
+                payload = self._send_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                self._write_stdin_json(payload)
+            except Exception as e:
+                print(f"[{datetime.now()}] WhatsApp Worker: erro ao enviar para bridge - {e}")
+
+    def _write_stdin_json(self, obj: dict):
+        if not self.process or not self.process.stdin:
+            raise RuntimeError("Bridge não está ativa")
+        line = json.dumps(obj, ensure_ascii=False)
+        self.process.stdin.write(line + "\n")
+        self.process.stdin.flush()
+
+    def _read_stdout(self):
+        try:
+            if not self.process or not self.process.stdout:
+                return
+            for raw in self.process.stdout:
+                line = raw.strip()
+                if not line:
+                    continue
+                # A bridge envia linhas JSON. Logs não-JSON são ignorados.
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    print(f"[WA-BRIDGE] {line}")
+                    continue
+                self._handle_bridge_message(msg)
+        except Exception as e:
+            print(f"[{datetime.now()}] WhatsApp Worker: erro lendo stdout - {e}")
+
+    def _read_stderr(self):
+        try:
+            if not self.process or not self.process.stderr:
+                return
+            for raw in self.process.stderr:
+                text = raw.strip()
+                if text:
+                    print(f"[WA-BRIDGE:ERR] {text}")
+        except Exception:
+            pass
+
+    def _handle_bridge_message(self, msg: dict):
+        t = msg.get("type")
+        if t == "status":
+            status = msg.get("data", "")
+            if status == "connected":
+                self.manager.is_ready = True
+                self.manager.status_updated.emit("✅ Conectado usando sessão salva" if os.path.exists(self.session_path) else "✅ Conectado com sucesso!")
+            elif status == "connecting":
+                self.manager.status_updated.emit("🔄 Conectando...")
+            elif status == "session_invalid":
+                # Sessão inválida: remove arquivo e solicita novo login
+                try:
+                    if os.path.exists(self.session_path):
+                        os.remove(self.session_path)
+                except Exception:
+                    pass
+                self.manager.status_updated.emit("⚠️ Sessão inválida, gere um novo QR Code")
+            elif status == "disconnected":
+                self.manager.is_ready = False
+                self.manager.status_updated.emit("🔌 Desconectado")
+            elif status == "session_saved":
+                self.manager.status_updated.emit("💾 Sessão salva")
+            else:
+                self.manager.status_updated.emit(status)
+
+        elif t == "qr":
+            qr_text = msg.get("data", "")
+            try:
+                if qrcode is None:
+                    raise RuntimeError("Dependência 'qrcode' não instalada. Adicione 'qrcode[pil]' ao requirements.txt")
+                img = qrcode.make(qr_text)
+                img.save(self.qr_image_path)
+                self.manager.qr_code_ready.emit(self.qr_image_path)
+                self.manager.status_updated.emit("ℹ️ Por favor, escaneie o QR Code")
+            except Exception as e:
+                self.manager.error_occurred.emit(f"Falha ao gerar imagem do QR: {e}")
+
+        elif t == "error":
+            err = msg.get("data", "Erro desconhecido")
+            self.manager.error_occurred.emit(str(err))
+
+        elif t == "log":
+            print(f"[WA-BRIDGE] {msg.get('data')}")
+
+        else:
+            print(f"[WA-BRIDGE:UNKNOWN] {msg}")
+
+    def _find_node_command(self):
+        # Procura por 'node' no PATH
+        candidates = ["node"]
+        if os.name == "nt":
+            candidates.append("node.exe")
+
+        print(f"[DEBUG] Procurando node entre candidatos: {candidates}")
+
+        for c in candidates:
+            path = shutil.which(c)
+            if path:
+                print(f"[DEBUG] Encontrado: {c} -> {path}")
+                return path
+
+        # Verificar caminhos comuns do Node.js
+        common_paths = [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "C:\\Program Files (x86)\\nodejs\\node.exe",
+            "%LOCALAPPDATA%\\fnm_multishells\\nodejs\\node.exe",
+            "%LOCALAPPDATA%\\nvm\\node.exe",
+            "%PROGRAMFILES%\\nodejs\\node.exe",
+            "%PROGRAMFILES(X86)%\\nodejs\\node.exe"
+        ]
+
+        print("[DEBUG] Verificando caminhos comuns...")
+        for path in common_paths:
+            expanded = os.path.expandvars(path)
+            if os.path.exists(expanded):
+                print(f"[DEBUG] Encontrado no caminho comum: {expanded}")
+                return expanded
+
+        print("[DEBUG] Node.js não encontrado")
+        return None
+
+    def _write_bridge_script(self):
+        """
+        Escreve a bridge Node (Baileys) em arquivo JS no diretório de dados.
+        Isso evita dependência de arquivo externo e simplifica a distribuição.
+        """
+        try:
+            with open(self.bridge_path, "w", encoding="utf-8") as f:
+                f.write(BAILEYS_BRIDGE_JS)
+        except Exception as e:
+            raise RuntimeError(f"Não foi possível escrever o script da bridge: {e}")
+
+
+# Conteúdo do bridge utilizando @whiskeysockets/baileys
+BAILEYS_BRIDGE_JS = r"""
+const fs = require('fs');
+const path = require('path');
+
+function safeLog(obj) {
+  try {
+    process.stdout.write(JSON.stringify(obj) + '\n');
+  } catch (e) {
+    // ignore
+  }
+}
+
+(async () => {
+  let baileys;
+  let pino;
+  try {
+    baileys = require('@whiskeysockets/baileys');
+    pino = require('pino');
+  } catch (e) {
+    safeLog({ type: 'error', data: "Dependências Node ausentes. Instale com: npm i @whiskeysockets/baileys pino" });
+    process.exit(1);
+    return;
+  }
+
+  const { default: makeWASocket, useSingleFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys;
+  const args = process.argv.slice(2);
+  const sessionPath = args[0] || path.join(process.cwd(), 'whatsapp_session.json');
+
+  const { state, saveState } = useSingleFileAuthState(sessionPath);
+  const { version } = await fetchLatestBaileysVersion();
+  let sock;
+
+  function startSock() {
+    sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      browser: ['PDV-Desktop', 'Chrome', '1.0.0'],
+      logger: pino({ level: 'silent' }),
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+    });
+
+    sock.ev.on('creds.update', saveState);
+
+    sock.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      if (qr) {
+        safeLog({ type: 'qr', data: qr });
+      }
+      if (connection === 'connecting') {
+        safeLog({ type: 'status', data: 'connecting' });
+      } else if (connection === 'open') {
+        safeLog({ type: 'status', data: 'connected' });
+        safeLog({ type: 'status', data: 'session_saved' });
+      } else if (connection === 'close') {
+        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.status || lastDisconnect?.error?.code;
+        if (reason === DisconnectReason.loggedOut || reason === 401 || reason === 'ERR_BAD_SESSION') {
+          try { fs.unlinkSync(sessionPath); } catch (e) {}
+          safeLog({ type: 'status', data: 'session_invalid' });
+        } else {
+          safeLog({ type: 'status', data: 'disconnected' });
+        }
+        process.exit(0);
+      }
+    });
+  }
+
+  startSock();
+
+  // Leitura de comandos via STDIN (NDJSON)
+  const readline = require('readline');
+  const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+  rl.on('line', async (line) => {
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+    if (!msg || typeof msg !== 'object') return;
+
+    if (msg.action === 'shutdown') {
+      try { await sock?.end?.(); } catch {}
+      process.exit(0);
+      return;
+    }
+
+    if (msg.action === 'send') {
+      const phone = (msg.phone || '').replace(/[^\d]/g, '');
+      const text = msg.message || '';
+      if (!phone || !text) return;
+      try {
+        const jid = phone.endsWith('@s.whatsapp.net') ? phone : phone + '@s.whatsapp.net';
+        await sock.sendMessage(jid, { text });
+        safeLog({ type: 'log', data: 'Mensagem enviada' });
+      } catch (e) {
+        safeLog({ type: 'error', data: 'Falha ao enviar mensagem: ' + (e?.message || e) });
+      }
+      return;
+    }
+  });
+
+  rl.on('close', () => {
+    process.exit(0);
+  });
+})();
+"""

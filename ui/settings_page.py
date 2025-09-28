@@ -108,7 +108,7 @@ class SettingsPage(QWidget):
             settings_items.extend([
                 ("users", "Usuários", IconTheme.USERS, self.open_user_management),
                 ("audit_log", "Log de Auditoria", IconTheme.REPORTS, self.open_audit_log),
-                ("whatsapp", "Notificações WhatsApp", IconTheme.SALES, self.open_whatsapp_settings),
+                ("whatsapp", "Configuração WhatsApp", IconTheme.SALES, self.open_whatsapp_settings),
                 ("backup", "Backup do Sistema", IconTheme.SAVE, self.open_backup_dialog)
             ])
 
@@ -653,412 +653,261 @@ class SettingsPage(QWidget):
         self.save_config(config)
 
     def create_whatsapp_config_widget(self):
-        """Cria o widget de configuração das notificações do WhatsApp."""
-        from database import load_setting, save_setting
-
+        """Cria o widget de configuração do WhatsApp para QR Code e verificação de conexão."""
         whatsapp_widget = QWidget()
         layout = QVBoxLayout(whatsapp_widget)
         layout.setSpacing(20)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Título
-        title = QLabel("Configurações de Notificações do WhatsApp")
+        title = QLabel("Configuração do WhatsApp")
         title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title)
 
         # Status da conexão
-        self.whatsapp_status_label = QLabel("Verificando conexão com WhatsApp...")
+        self.whatsapp_status_label = QLabel("⏳ Aguardando configuração...")
         self.whatsapp_status_label.setStyleSheet("""
-            QLabel {
-                padding: 10px;
-                border-radius: 5px;
+            QLabel {{
+                padding: 15px;
+                border-radius: 8px;
                 font-weight: bold;
+                font-size: 13px;
                 text-align: center;
-            }
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeaa7;
+            }}
         """)
         layout.addWidget(self.whatsapp_status_label)
 
-        # Botões de conexão
-        connection_layout = QHBoxLayout()
+        # Botões de ação
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(15)
 
         self.check_connection_button = QPushButton("🔍 Verificar Conexão")
+        self.check_connection_button.setMinimumHeight(40)
         self.check_connection_button.clicked.connect(self.check_whatsapp_connection)
         self.check_connection_button.setStyleSheet("""
-            QPushButton {
+            QPushButton {{
                 background-color: #17a2b8;
                 color: white;
                 border: none;
                 padding: 8px 16px;
-                border-radius: 5px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
                 background-color: #138496;
-            }
+            }}
+            QPushButton:disabled {{
+                background-color: #6c757d;
+                color: #adb5bd;
+            }}
         """)
 
-        self.qr_code_button = QPushButton("📱 Gerar QR Code")
+        self.qr_code_button = QPushButton("📱 Conectar WhatsApp")
+        self.qr_code_button.setMinimumHeight(40)
         self.qr_code_button.clicked.connect(self.generate_qr_code)
         self.qr_code_button.setStyleSheet("""
-            QPushButton {
+            QPushButton {{
                 background-color: #28a745;
                 color: white;
                 border: none;
                 padding: 8px 16px;
-                border-radius: 5px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
                 background-color: #218838;
-            }
+            }}
+            QPushButton:disabled {{
+                background-color: #6c757d;
+                color: #adb5bd;
+            }}
         """)
 
-        connection_layout.addWidget(self.check_connection_button)
-        connection_layout.addWidget(self.qr_code_button)
-        connection_layout.addStretch()
-        layout.addLayout(connection_layout)
+        buttons_layout.addWidget(self.check_connection_button)
+        buttons_layout.addWidget(self.qr_code_button)
+        buttons_layout.addStretch()
+        layout.addLayout(buttons_layout)
 
-        # Área para exibir QR Code
-        self.qr_code_label = QLabel("QR Code aparecerá aqui após ser gerado")
+        # Área para exibir QR Code com melhor design
+        qr_frame = QFrame()
+        qr_frame.setFrameShape(QFrame.Shape.Box)
+        qr_frame.setStyleSheet("""
+            QFrame {{
+                border: 2px dashed #dee2e6;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+            }}
+        """)
+
+        qr_layout = QVBoxLayout(qr_frame)
+
+        self.qr_code_label = QLabel("Clique em 'Conectar WhatsApp' para gerar o QR Code")
         self.qr_code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.qr_code_label.setStyleSheet("""
-            QLabel {
-                border: 2px dashed #ccc;
-                padding: 20px;
-                margin: 10px 0;
-                color: #666;
-                font-size: 12px;
-            }
+            QLabel {{
+                padding: 30px;
+                color: #6c757d;
+                font-size: 14px;
+                font-weight: 500;
+            }}
         """)
-        self.qr_code_label.setMinimumHeight(200)
-        layout.addWidget(self.qr_code_label)
+        self.qr_code_label.setMinimumHeight(250)
+        qr_layout.addWidget(self.qr_code_label)
 
-        # Instruções
-        instructions = QLabel("📋 Como conectar o WhatsApp:\n"
-                             "1. Clique em 'Gerar QR Code'\n"
-                             "2. Abra WhatsApp no seu celular\n"
-                             "3. Vá em: Menu → WhatsApp Web\n"
-                             "4. Escaneie o QR Code gerado\n"
-                             "5. Aguarde a conexão ser estabelecida")
+        layout.addWidget(qr_frame)
+
+        # Instruções claras
+        instructions = QLabel(
+            "📱 Como conectar o WhatsApp:\n\n"
+            "1. Clique em 'Conectar WhatsApp' para gerar o QR Code\n"
+            "2. Abra o WhatsApp no seu celular\n"
+            "3. Toque no ícone de menu (⋮) → 'WhatsApp Web'\n"
+            "4. Escaneie o QR Code mostrado acima\n"
+            "5. Aguarde a confirmação de conexão estabelecida\n\n"
+            "⚠️ Mantenha o computador ligado durante o processo de conexão"
+        )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("color: #666; font-size: 12px; margin: 10px 0;")
+        instructions.setStyleSheet("""
+            QLabel {{
+                color: #495057;
+                font-size: 13px;
+                line-height: 1.5;
+                background-color: #e9ecef;
+                padding: 15px;
+                border-radius: 6px;
+                border: 1px solid #dee2e6;
+            }}
+        """)
         layout.addWidget(instructions)
 
-        # Configurações principais
-        config_group = QFrame()
-        config_group.setFrameShape(QFrame.Shape.StyledPanel)
-        config_layout = QVBoxLayout(config_group)
-
-        # Checkbox para habilitar notificações
-        self.whatsapp_enabled_checkbox = QCheckBox("Habilitar notificações de abertura e fechamento de caixa")
-        self.whatsapp_enabled_checkbox.setStyleSheet("font-size: 14px; padding: 10px;")
-
-        # Campo para número do telefone
-        phone_layout = QHBoxLayout()
-        phone_layout.addWidget(QLabel("Número de destino:"))
-        self.whatsapp_phone_input = QLineEdit()
-        self.whatsapp_phone_input.setPlaceholderText("Ex: +5511999998888")
-        self.whatsapp_phone_input.setStyleSheet("""
-            QLineEdit {
-                padding: 8px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #007bff;
-            }
+        # Status adicional
+        status_info = QLabel(
+            "💡 Dica: Após conectar, a sessão será salva automaticamente para próximos logins."
+        )
+        status_info.setWordWrap(True)
+        status_info.setStyleSheet("""
+            QLabel {{
+                color: #6c757d;
+                font-size: 12px;
+                font-style: italic;
+                margin-top: 5px;
+            }}
         """)
-        phone_layout.addWidget(self.whatsapp_phone_input)
+        layout.addWidget(status_info)
 
-        config_layout.addWidget(self.whatsapp_enabled_checkbox)
-        config_layout.addLayout(phone_layout)
-
-        # Informações sobre formato do número
-        format_info = QLabel("Formato do número: +55 (código país) + (DDD) + (número)\nExemplo: +5511987654321")
-        format_info.setStyleSheet("color: #888; font-size: 12px; margin-top: 5px;")
-        config_layout.addWidget(format_info)
-
-        layout.addWidget(config_group)
-
-        # Botões principais
-        button_layout = QHBoxLayout()
-
-        test_button = QPushButton("🧪 Testar Envio")
-        test_button.clicked.connect(self.test_whatsapp_notification)
-        test_button.setStyleSheet("""
-            QPushButton {
-                background-color: #ffc107;
-                color: #212529;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 5px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #e0a800;
-            }
-        """)
-
-        save_button = QPushButton("💾 Salvar Configurações")
-        save_button.clicked.connect(self.save_whatsapp_config)
-        save_button.setStyleSheet("""
-            QPushButton {
-                background-color: #007bff;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 5px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #0056b3;
-            }
-        """)
-
-        button_layout.addWidget(test_button)
-        button_layout.addWidget(save_button)
-        layout.addLayout(button_layout)
-
-        # Carregar configurações existentes
-        self.load_whatsapp_config_to_ui()
-
-        # Verificar conexão inicial
+        # Verificar status inicial
         self.update_whatsapp_status()
 
         return whatsapp_widget
 
-    def load_whatsapp_config_to_ui(self):
-        """Carrega as configurações do WhatsApp para a interface."""
-        from database import load_setting
-
-        # Carregar configurações do banco de dados
-        whatsapp_enabled = load_setting('whatsapp_notifications_enabled', 'false')
-        whatsapp_number = load_setting('whatsapp_notification_number', '')
-
-        # Aplicar na interface
-        self.whatsapp_enabled_checkbox.setChecked(whatsapp_enabled.lower() == 'true')
-        self.whatsapp_phone_input.setText(whatsapp_number)
-
-    def save_whatsapp_config(self):
-        """Salva as configurações do WhatsApp."""
-        from database import save_setting
-
-        # Obter valores da interface
-        whatsapp_enabled = 'true' if self.whatsapp_enabled_checkbox.isChecked() else 'false'
-        whatsapp_number = self.whatsapp_phone_input.text().strip()
-
-        # Validar número se estiver habilitado
-        if self.whatsapp_enabled_checkbox.isChecked():
-            if not whatsapp_number:
-                QMessageBox.warning(self, "Configuração Inválida",
-                                  "Para habilitar as notificações, você deve informar um número de telefone.")
-                return
-
-            # Validação básica do formato do número
-            import re
-            phone_pattern = r'^\+\d{10,15}$'
-            if not re.match(phone_pattern, whatsapp_number):
-                QMessageBox.warning(self, "Formato Inválido",
-                                  "O número deve estar no formato internacional.\n\n"
-                                  "Exemplo: +5511987654321\n\n"
-                                  "Inclua o código do país (+55 para Brasil) e DDD.")
-                return
-
-        # Salvar no banco de dados
-        save_setting('whatsapp_notifications_enabled', whatsapp_enabled)
-        save_setting('whatsapp_notification_number', whatsapp_number)
-
-        QMessageBox.information(self, "Sucesso",
-                              "Configurações do WhatsApp salvas com sucesso!")
-
-    def test_whatsapp_notification(self):
-        """Testa o envio de uma notificação via WhatsApp."""
-        from integrations.whatsapp_manager import WhatsAppManager
-
-        phone_number = self.whatsapp_phone_input.text().strip()
-
-        if not phone_number:
-            QMessageBox.warning(self, "Número não informado",
-                              "Digite um número de telefone para testar o envio.")
-            return
-
-        # Validação básica do formato
-        import re
-        phone_pattern = r'^\+\d{10,15}$'
-        if not re.match(phone_pattern, phone_number):
-            QMessageBox.warning(self, "Formato Inválido",
-                              "O número deve estar no formato internacional.\n\n"
-                              "Exemplo: +5511987654321")
-            return
-
-        # Criar mensagem de teste
-        test_message = "🧪 Teste de notificação WhatsApp do Sistema PDV\n\nSe você recebeu esta mensagem, a integração está funcionando corretamente!"
-
-        # Obter instância do manager e enviar mensagem
-        manager = WhatsAppManager()
-        success = manager.send_message(phone_number, test_message)
-
-        if success:
-            QMessageBox.information(self, "Teste Enviado",
-                                  "Mensagem de teste enviada com sucesso!\n\n"
-                                  "Verifique se a mensagem foi recebida no número informado.")
-        else:
-            QMessageBox.warning(self, "Erro no Envio",
-                              "Não foi possível enviar a mensagem de teste.\n\n"
-                              "Verifique se o WhatsApp está conectado e tente novamente.")
-
-    def check_whatsapp_connection(self):
-        """Verifica a conexão com o WhatsApp Web."""
-        from integrations.whatsapp_manager import WhatsAppManager
-
-        self.check_connection_button.setText("Verificando...")
-        self.check_connection_button.setEnabled(False)
-
-        try:
-            manager = WhatsAppManager()
-
-            if manager.is_ready:
-                self.whatsapp_status_label.setText("✅ WhatsApp Conectado")
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {
-                        padding: 10px;
-                        border-radius: 5px;
-                        font-weight: bold;
-                        text-align: center;
-                        background-color: #d4edda;
-                        color: #155724;
-                        border: 1px solid #c3e6cb;
-                    }
-                """)
-                QMessageBox.information(self, "Conexão Verificada", "WhatsApp está conectado e pronto para uso!")
-            else:
-                self.whatsapp_status_label.setText("❌ WhatsApp Desconectado")
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {
-                        padding: 10px;
-                        border-radius: 5px;
-                        font-weight: bold;
-                        text-align: center;
-                        background-color: #f8d7da;
-                        color: #721c24;
-                        border: 1px solid #f5c6cb;
-                    }
-                """)
-                QMessageBox.warning(self, "Conexão Necessária",
-                                  "WhatsApp não está conectado.\n\n"
-                                  "Clique em 'Gerar QR Code' para conectar.")
-
-        except Exception as e:
-            self.whatsapp_status_label.setText("❌ Erro na Verificação")
-            self.whatsapp_status_label.setStyleSheet("""
-                QLabel {
-                    padding: 10px;
-                    border-radius: 5px;
-                    font-weight: bold;
-                    text-align: center;
-                    background-color: #fff3cd;
-                    color: #856404;
-                    border: 1px solid #ffeaa7;
-                }
-            """)
-            QMessageBox.critical(self, "Erro", f"Erro ao verificar conexão: {str(e)}")
-        finally:
-            self.check_connection_button.setText("🔍 Verificar Conexão")
-            self.check_connection_button.setEnabled(True)
-
     def generate_qr_code(self):
-        """Gera QR code para conexão do WhatsApp Web."""
+        """Gera QR code para conexão do WhatsApp."""
+        from PyQt6.QtGui import QPixmap
         from integrations.whatsapp_manager import WhatsAppManager
 
-        self.qr_code_button.setText("Gerando...")
-        self.qr_code_button.setEnabled(False)
-
         try:
-            print(f"[{datetime.now()}] Settings: Iniciando geração de QR Code...")
-            manager = WhatsAppManager()
-            print(f"[{datetime.now()}] Settings: Manager obtido com sucesso")
+            self.qr_code_button.setText("Conectando...")
+            self.qr_code_button.setEnabled(False)
+            self.check_connection_button.setEnabled(False)
 
-            # Conectar os sinais para receber o QR code
-            try:
-                manager.qr_code_updated.connect(self.on_qr_code_received)
-                manager.status_updated.connect(self.on_whatsapp_status_updated)
-                print(f"[{datetime.now()}] Settings: Sinais conectados com sucesso")
-            except Exception as signal_error:
-                print(f"[{datetime.now()}] Settings: Erro ao conectar sinais - {str(signal_error)}")
-                raise signal_error
+            print(f"[{datetime.now()}] Settings: Iniciando conexão do WhatsApp...")
+            manager = WhatsAppManager()
+
+            # Conectar os sinais corretos
+            manager.qr_code_ready.connect(self.on_qr_code_path_received)
+            manager.status_updated.connect(self.on_whatsapp_status_updated)
 
             # Iniciar conexão
-            try:
-                manager.connect()
-                print(f"[{datetime.now()}] Settings: Manager.connect() executado com sucesso")
-            except Exception as connect_error:
-                print(f"[{datetime.now()}] Settings: Erro no manager.connect() - {str(connect_error)}")
-                import traceback
-                print(f"[{datetime.now()}] Settings: Traceback - {traceback.format_exc()}")
-                raise connect_error
+            manager.connect()
 
-            self.whatsapp_status_label.setText("🔄 Iniciando conexão...")
+            self.whatsapp_status_label.setText("🔄 Iniciando conexão com WhatsApp...")
             self.whatsapp_status_label.setStyleSheet("""
-                QLabel {
-                    padding: 10px;
-                    border-radius: 5px;
+                QLabel {{
+                    padding: 15px;
+                    border-radius: 8px;
                     font-weight: bold;
+                    font-size: 13px;
                     text-align: center;
                     background-color: #fff3cd;
                     color: #856404;
                     border: 1px solid #ffeaa7;
-                }
+                }}
             """)
 
-            print(f"[{datetime.now()}] Settings: QR Code generation iniciado com sucesso")
-
         except Exception as e:
-            print(f"[{datetime.now()}] Settings: Erro geral ao gerar QR Code - {str(e)}")
+            print(f"[{datetime.now()}] Settings: Erro ao iniciar conexão - {str(e)}")
             import traceback
-            print(f"[{datetime.now()}] Settings: Traceback completo - {traceback.format_exc()}")
+            print(f"[{datetime.now()}] Settings: Traceback - {traceback.format_exc()}")
 
             self.whatsapp_status_label.setText("❌ Erro ao Iniciar Conexão")
             self.whatsapp_status_label.setStyleSheet("""
-                QLabel {
-                    padding: 10px;
-                    border-radius: 5px;
+                QLabel {{
+                    padding: 15px;
+                    border-radius: 8px;
                     font-weight: bold;
+                    font-size: 13px;
                     text-align: center;
                     background-color: #f8d7da;
                     color: #721c24;
                     border: 1px solid #f5c6cb;
-                }
+                }}
             """)
-            QMessageBox.critical(self, "Erro", f"Erro ao iniciar conexão: {str(e)}")
+            QMessageBox.critical(self, "Erro", f"Erro ao iniciar conexão com WhatsApp:\n{str(e)}")
         finally:
-            self.qr_code_button.setText("📱 Gerar QR Code")
+            self.qr_code_button.setText("📱 Conectar WhatsApp")
             self.qr_code_button.setEnabled(True)
+            self.check_connection_button.setEnabled(True)
 
-    def on_qr_code_received(self, pixmap):
-        """Slot para receber e exibir o QR code."""
+    def on_qr_code_path_received(self, image_path):
+        """Slot para receber o caminho do arquivo do QR code e exibi-lo."""
         try:
+            # Carregar o QR code do arquivo
+            pixmap = QPixmap(image_path)
+            if pixmap.isNull():
+                raise Exception("Falha ao carregar imagem do QR Code")
+
             # Redimensionar para caber na área
-            scaled_pixmap = pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio)
+            scaled_pixmap = pixmap.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             self.qr_code_label.setPixmap(scaled_pixmap)
             self.qr_code_label.setText("")  # Remove o texto
 
             self.whatsapp_status_label.setText("📱 QR Code Gerado - Escaneie com o WhatsApp")
             self.whatsapp_status_label.setStyleSheet("""
-                QLabel {
-                    padding: 10px;
-                    border-radius: 5px;
+                QLabel {{
+                    padding: 15px;
+                    border-radius: 8px;
                     font-weight: bold;
+                    font-size: 13px;
                     text-align: center;
                     background-color: #d1ecf1;
                     color: #0c5460;
                     border: 1px solid #bee5eb;
-                }
+                }}
             """)
 
         except Exception as e:
             print(f"Erro ao exibir QR Code: {str(e)}")
-            self.qr_code_label.setText("Erro ao exibir QR Code")
+            self.qr_code_label.setText("❌ Erro ao carregar QR Code")
+            self.whatsapp_status_label.setText("❌ Erro ao gerar QR Code")
+            self.whatsapp_status_label.setStyleSheet("""
+                QLabel {{
+                    padding: 15px;
+                    border-radius: 8px;
+                    font-weight: bold;
+                    font-size: 13px;
+                    text-align: center;
+                    background-color: #f8d7da;
+                    color: #721c24;
+                    border: 1px solid #f5c6cb;
+                }}
+            """)
+
+
 
     def on_whatsapp_status_updated(self, status):
         """Slot para receber atualizações de status do WhatsApp."""
@@ -1118,11 +967,74 @@ class SettingsPage(QWidget):
         except Exception as e:
             print(f"Erro ao atualizar status: {str(e)}")
 
+    def check_whatsapp_connection(self):
+        """Verifica o status de conexão do WhatsApp."""
+        try:
+            self.check_connection_button.setText("Verificando...")
+            self.check_connection_button.setEnabled(False)
+
+            from integrations.whatsapp_manager import WhatsAppManager
+            manager = WhatsAppManager()
+
+            # Atualizar status baseado na conexão atual
+            if manager.is_ready:
+                self.whatsapp_status_label.setText("✅ WhatsApp Conectado com Sucesso")
+                self.whatsapp_status_label.setStyleSheet("""
+                    QLabel {{
+                        padding: 15px;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        font-size: 13px;
+                        text-align: center;
+                        background-color: #d4edda;
+                        color: #155724;
+                        border: 1px solid #c3e6cb;
+                    }}
+                """)
+                QMessageBox.information(self, "WhatsApp Conectado",
+                                      "✅ WhatsApp está conectado e pronto para uso!")
+            else:
+                self.whatsapp_status_label.setText("❌ WhatsApp Desconectado")
+                self.whatsapp_status_label.setStyleSheet("""
+                    QLabel {{
+                        padding: 15px;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        font-size: 13px;
+                        text-align: center;
+                        background-color: #f8d7da;
+                        color: #721c24;
+                        border: 1px solid #f5c6cb;
+                    }}
+                """)
+                QMessageBox.warning(self, "WhatsApp Desconectado",
+                                  "❌ WhatsApp não está conectado.\n\n"
+                                  "Clique em 'Conectar WhatsApp' para gerar um novo QR Code e estabelecer a conexão.")
+
+        except Exception as e:
+            self.whatsapp_status_label.setText("❌ Erro ao Verificar Conexão")
+            self.whatsapp_status_label.setStyleSheet("""
+                QLabel {{
+                    padding: 15px;
+                    border-radius: 8px;
+                    font-weight: bold;
+                    font-size: 13px;
+                    text-align: center;
+                    background-color: #f8d7da;
+                    color: #721c24;
+                    border: 1px solid #f5c6cb;
+                }}
+            """)
+            QMessageBox.critical(self, "Erro", f"Erro ao verificar conexão com WhatsApp:\n{str(e)}")
+        finally:
+            self.check_connection_button.setText("🔍 Verificar Conexão")
+            self.check_connection_button.setEnabled(True)
+
     def update_whatsapp_status(self):
         """Atualiza o status inicial do WhatsApp."""
         self.whatsapp_status_label.setText("⏳ Aguardando configuração...")
         self.whatsapp_status_label.setStyleSheet("""
-            QLabel {
+            QLabel {{
                 padding: 10px;
                 border-radius: 5px;
                 font-weight: bold;
@@ -1130,5 +1042,5 @@ class SettingsPage(QWidget):
                 background-color: #fff3cd;
                 color: #856404;
                 border: 1px solid #ffeaa7;
-            }
+            }}
         """)

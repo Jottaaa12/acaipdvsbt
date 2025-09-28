@@ -45,3 +45,6 @@ venv/
 
 # Backup files
 backups/
+
+# Node.js dependencies
+node_modules/

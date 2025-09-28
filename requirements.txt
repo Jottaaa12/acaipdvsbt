@@ -4,4 +4,4 @@ python-escpos
 pyqtgraph
 requests
 pywin32
-whatsappy-py
+qrcode[pil]
