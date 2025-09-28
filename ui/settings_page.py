@@ -816,18 +816,18 @@ class SettingsPage(QWidget):
             self.check_connection_button.setEnabled(False)
 
             print(f"[{datetime.now()}] Settings: Iniciando conexão do WhatsApp...")
-            manager = WhatsAppManager()
+            manager = WhatsAppManager.get_instance()
 
             # Conectar os sinais corretos
             manager.qr_code_ready.connect(self.on_qr_code_path_received)
             manager.status_updated.connect(self.on_whatsapp_status_updated)
+            manager.error_occurred.connect(self.on_whatsapp_status_updated) # Conectar erro também
 
             # Iniciar conexão
             manager.connect()
 
             self.whatsapp_status_label.setText("🔄 Iniciando conexão com WhatsApp...")
-            self.whatsapp_status_label.setStyleSheet("""
-                QLabel {{
+            self.whatsapp_status_label.setStyleSheet("""                QLabel {{
                     padding: 15px;
                     border-radius: 8px;
                     font-weight: bold;
@@ -845,8 +845,7 @@ class SettingsPage(QWidget):
             print(f"[{datetime.now()}] Settings: Traceback - {traceback.format_exc()}")
 
             self.whatsapp_status_label.setText("❌ Erro ao Iniciar Conexão")
-            self.whatsapp_status_label.setStyleSheet("""
-                QLabel {{
+            self.whatsapp_status_label.setStyleSheet("""                QLabel {{
                     padding: 15px;
                     border-radius: 8px;
                     font-weight: bold;
