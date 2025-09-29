@@ -1,13 +1,14 @@
-import csv
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QGroupBox, QGridLayout, QDateEdit, QTabWidget,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QDialog, QTextEdit, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
 import database as db
 from datetime import datetime, timedelta
+from decimal import Decimal
+from utils import format_currency
 from .worker import Worker
 
 class ReportsPage(QWidget):
@@ -165,10 +166,10 @@ class ReportsPage(QWidget):
 
         # Tabela de histórico
         self.cash_history_table = QTableWidget()
-        self.cash_history_table.setColumnCount(8)
+        self.cash_history_table.setColumnCount(9)
         self.cash_history_table.setHorizontalHeaderLabels([
             "ID", "Abertura", "Fechamento", "Valor Inicial",
-            "Valor Esperado", "Valor Contado", "Diferença", "Usuário"
+            "Valor Esperado", "Valor Contado", "Diferença", "Usuário", "Detalhes"
         ])
         self.cash_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.cash_history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -222,10 +223,114 @@ class ReportsPage(QWidget):
             self.cash_history_table.setItem(row, 6, diff_item)
             self.cash_history_table.setItem(row, 7, QTableWidgetItem(item['user_opened']))
 
+            # Botão de detalhes
+            details_button = QPushButton("Ver Detalhes")
+            details_button.clicked.connect(lambda _, sid=item['id']: self.show_session_details(sid))
+            self.cash_history_table.setCellWidget(row, 8, details_button)
+
     def on_cash_history_report_finished(self):
         """Slot chamado quando o worker de histórico de caixa termina."""
         self.refresh_button.setEnabled(True)
         self.refresh_button.setText("Atualizar")
+
+    def show_session_details(self, session_id):
+        """Busca e exibe o relatório detalhado de uma sessão de caixa."""
+        worker = Worker(db.get_cash_session_report, session_id)
+        worker.signals.result.connect(self.on_detail_report_ready)
+        worker.signals.error.connect(self.on_report_error)
+        from PyQt6.QtCore import QThreadPool
+        threadpool = QThreadPool.globalInstance()
+        threadpool.start(worker)
+
+    def on_detail_report_ready(self, report_data):
+        """Exibe o diálogo com o relatório detalhado da sessão."""
+        if not report_data or not report_data.get('session'):
+            QMessageBox.warning(self, "Erro", "Não foi possível gerar o relatório detalhado para esta sessão.")
+            return
+
+        report_text = self._generate_session_report_text(report_data)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Detalhes da Sessão de Caixa #{report_data['session']['id']}")
+        dialog.setMinimumSize(600, 700)
+
+        layout = QVBoxLayout(dialog)
+        
+        report_display = QTextEdit()
+        report_display.setReadOnly(True)
+        report_display.setFont(QFont("Courier New", 10))
+        report_display.setText(report_text)
+        
+        layout.addWidget(report_display)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(dialog.accept)
+        layout.addWidget(button_box)
+
+        dialog.exec()
+
+    def _generate_session_report_text(self, report_data):
+        """Gera o texto formatado para o relatório de uma sessão."""
+        s_info = report_data['session']
+        sales_summary = report_data['sales']
+        movements = report_data['movements']
+
+        cash_sales = sum(Decimal(s['total']) for s in sales_summary if s['payment_method'] == 'Dinheiro')
+        supplies = sum(Decimal(m['amount']) for m in movements if m['type'] == 'suprimento')
+        withdrawals = sum(Decimal(m['amount']) for m in movements if m['type'] == 'sangria')
+
+        header = "RELATÓRIO DE FECHAMENTO DE CAIXA".center(50, '=')
+        session_details = (
+            f"Sessão ID: {s_info['id']}\n"
+            f"Operador:  {s_info['username']}\n"
+            f"Abertura:  {s_info['open_time'].strftime('%d/%m/%Y %H:%M')}\n"
+            f"Fechamento:{s_info['close_time'].strftime('%d/%m/%Y %H:%M') if s_info['close_time'] else 'EM ABERTO'}\n"
+        )
+        
+        summary_header = "RESUMO FINANCEIRO (CAIXA FÍSICO)".center(50, '-')
+        summary_lines = (
+            f"(+) Fundo de Troco:           {format_currency(s_info['initial_amount']).rjust(15)}\n"
+            f"(+) Vendas em Dinheiro:       {format_currency(cash_sales).rjust(15)}\n"
+            f"(+) Suprimentos:              {format_currency(supplies).rjust(15)}\n"
+            f"(-) Sangrias:                 {format_currency(withdrawals, is_negative=True).rjust(15)}\n"
+            f"{'='*50}\n"
+            f"(=) SALDO ESPERADO:           {format_currency(s_info['expected_amount']).rjust(15)}\n"
+            f"    SALDO CONTADO:            {format_currency(s_info['final_amount']).rjust(15)}\n"
+            f"{'='*50}\n"
+            f"(=) DIFERENÇA:                {format_currency(s_info['difference'], is_negative=(s_info['difference'] < 0)).rjust(15)}\n"
+        )
+
+        other_sales_header = "VENDAS (OUTRAS FORMAS)".center(50, '-')
+        other_sales_lines = ""
+        other_sales_summary = [s for s in sales_summary if s['payment_method'] != 'Dinheiro']
+        if other_sales_summary:
+            for item in other_sales_summary:
+                other_sales_lines += f"{item['payment_method'].ljust(25)} {format_currency(item['total']).rjust(24)}\n"
+        else:
+            other_sales_lines = "Nenhuma venda em outras formas de pagamento.\n"
+
+        grand_total_header = "TOTAIS GERAIS".center(50, '-')
+        grand_total_lines = (
+            f"Faturamento Bruto (Todas Formas): {format_currency(report_data['total_revenue']).rjust(15)}\n"
+            f"Faturamento - Sangrias:         {format_currency(report_data['total_after_sangria']).rjust(15)}\n"
+        )
+
+        obs_header = "OBSERVAÇÕES".center(50, '-')
+        obs_text = s_info['observations'] if s_info.get('observations') else "Nenhuma observação."
+
+        return (
+            f"{header}\n"
+            f"{session_details}\n"
+            f"{summary_header}\n"
+            f"{summary_lines}"
+            f"{other_sales_header}\n"
+            f"{other_sales_lines}\n"
+            f"{grand_total_header}\n"
+            f"{grand_total_lines}\n"
+            f"{obs_header}\n"
+            f"{obs_text}\n"
+            f"{'='*50}\n"
+        )
 
     def set_date_today(self):
         today = QDate.currentDate()

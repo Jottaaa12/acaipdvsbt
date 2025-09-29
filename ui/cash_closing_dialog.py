@@ -118,7 +118,9 @@ class CashClosingDialog(QDialog):
             "supplies": supplies,
             "withdrawals": withdrawals,
             "expected_cash": expected_cash,
-            "session_info": session_data
+            "session_info": session_data,
+            "total_revenue": report['total_revenue'],
+            "total_after_sangria": report['total_after_sangria']
         }
 
     def show_final_report(self):
@@ -176,6 +178,12 @@ class CashClosingDialog(QDialog):
         else:
             other_sales_lines = "Nenhuma venda em outras formas de pagamento.\n"
 
+        grand_total_header = "TOTAIS GERAIS".center(50, '-')
+        grand_total_lines = (
+            f"Faturamento Bruto (Todas Formas): {format_currency(self.expected_summary['total_revenue']).rjust(15)}\n"
+            f"Faturamento - Sangrias:         {format_currency(self.expected_summary['total_after_sangria']).rjust(15)}\n"
+        )
+
         obs_header = "OBSERVAÇÕES".center(50, '-')
         obs_text = observations if observations else "Nenhuma observação."
 
@@ -186,6 +194,8 @@ class CashClosingDialog(QDialog):
             f"{summary_lines}"
             f"{other_sales_header}\n"
             f"{other_sales_lines}\n"
+            f"{grand_total_header}\n"
+            f"{grand_total_lines}\n"
             f"{obs_header}\n"
             f"{obs_text}\n"
             f"{ '='*50}\n"

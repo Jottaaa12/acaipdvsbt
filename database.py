@@ -837,10 +837,14 @@ def get_cash_session_report(session_id):
 
     # Vendas
     sales_rows = conn.execute('''
-        SELECT payment_method, COUNT(*) as count, SUM(total_amount) as total
-        FROM sales 
-        WHERE cash_session_id = ? AND training_mode = 0
-        GROUP BY payment_method
+        SELECT
+            sp.payment_method,
+            COUNT(DISTINCT s.id) as count,
+            SUM(sp.amount) as total
+        FROM sale_payments sp
+        JOIN sales s ON sp.sale_id = s.id
+        WHERE s.cash_session_id = ? AND s.training_mode = 0
+        GROUP BY sp.payment_method
     ''', (session_id,)).fetchall()
     sales_list = []
     for row in sales_rows:
@@ -880,11 +884,16 @@ def get_cash_session_report(session_id):
 
     conn.close()
     
+    total_revenue = sum(item['total'] for item in sales_list)
+    total_sangria = sum(m['amount'] for m in movements_list if m['type'] == 'sangria')
+
     return {
         'session': session_dict,
         'sales': sales_list,
         'movements': movements_list,
-        'counts': counts_list
+        'counts': counts_list,
+        'total_revenue': total_revenue,
+        'total_after_sangria': total_revenue - total_sangria
     }
 
 # --- Funções de Backup ---

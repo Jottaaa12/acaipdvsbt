@@ -334,8 +334,29 @@ class SalesPage(QWidget):
                 QMessageBox.critical(self, "Erro ao Salvar Venda", f"A venda não foi registrada.\nErro: {sale_message_or_id}")
                 return
 
+            # Enviar notificação automática de venda via WhatsApp
+            try:
+                from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
+                sales_notifier = get_whatsapp_sales_notifier()
+
+                # Preparar dados da venda para notificação
+                sale_data = {
+                    'id': sale_message_or_id if isinstance(sale_message_or_id, (int, str)) else 'N/A',
+                    'customer_name': 'Cliente',  # Pode ser expandido para capturar nome do cliente
+                    'total_amount': float(total_amount)
+                }
+
+                # Preparar detalhes dos pagamentos para notificação
+                payment_details = [{'method': p['method'], 'amount': float(p['amount'])} for p in payments]
+
+                # Enviar notificação (não bloqueante)
+                sales_notifier.notify_sale(sale_data, payment_details)
+            except Exception as e:
+                print(f"Aviso: Erro ao enviar notificação de venda via WhatsApp: {e}")
+                # Não exibir erro para usuário pois a venda foi salva com sucesso
+
             QMessageBox.information(self, "Venda Registrada", "Venda registrada com sucesso!")
-            
+
             if self.toggle_print_button.isChecked():
                 store_info = self.load_store_config()
                 # Create payment method string for receipt
@@ -344,7 +365,7 @@ class SalesPage(QWidget):
                 print_success, print_message = self.printer_handler.print_receipt(store_info, sale_details)
                 if not print_success:
                     QMessageBox.warning(self, "Erro na Impressão", f"A venda foi salva, mas houve um erro ao imprimir.\nErro: {print_message}")
-            
+
             self.current_sale_items.clear()
             self.update_sale_display()
 

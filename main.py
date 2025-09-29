@@ -83,6 +83,17 @@ class PDVApplication:
         # Fecha o dialog de login
         if self.login_dialog:
             self.login_dialog.close()
+
+        # Inicia a conexão com o WhatsApp automaticamente se for gerente
+        if self.current_user.get('role') == 'gerente':
+            try:
+                from integrations.whatsapp_manager import WhatsAppManager
+                print("Iniciando conexão automática com o WhatsApp...")
+                whatsapp_manager = WhatsAppManager.get_instance()
+                if not whatsapp_manager.is_ready:
+                    whatsapp_manager.connect()
+            except Exception as e:
+                print(f"Erro ao iniciar conexão automática com o WhatsApp: {e}")
     
     def on_logout_requested(self):
         """Callback executado quando logout é solicitado."""

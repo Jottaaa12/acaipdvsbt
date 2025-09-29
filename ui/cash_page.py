@@ -27,6 +27,7 @@ class CashPage(QWidget):
         super().__init__()
         self.current_user = current_user
         self.session_id = None
+        self.last_initial_amount = None
         self.operators = []
 
         # Gerenciador de operações de caixa assíncronas
@@ -408,6 +409,7 @@ class CashPage(QWidget):
         if not ok: return
         try:
             initial_amount = parse_currency(amount_text)
+            self.last_initial_amount = initial_amount
             self.open_cash_button.setText("Abrindo...")
             self.update_buttons_state(is_open=False, is_busy=True)
             self.cash_manager.open_session_async(self.current_user['id'], initial_amount)
@@ -421,8 +423,20 @@ class CashPage(QWidget):
             self.update_live_data()
             self.cash_session_changed.emit()
 
-            # Enviar notificação do WhatsApp se habilitada
-            self.send_whatsapp_notification('open')
+            # Enviar notificação de abertura de caixa via WhatsApp
+            try:
+                from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
+                sales_notifier = get_whatsapp_sales_notifier()
+
+                session_data = {
+                    'username': self.current_user['username'],
+                    'initial_amount': float(self.last_initial_amount),
+                    'id': 'nova_sessao'  # ID ainda não disponível neste momento
+                }
+
+                sales_notifier.notify_cash_opening(session_data)
+            except Exception as e:
+                print(f"Aviso: Erro ao enviar notificação de abertura de caixa: {e}")
         else:
             QMessageBox.warning(self, "Erro", message)
         self.update_buttons_state(is_open=success, is_busy=False)
@@ -454,8 +468,27 @@ class CashPage(QWidget):
             self.load_session_history()
             self.cash_session_changed.emit()
 
-            # Enviar notificação do WhatsApp se habilitada
-            self.send_whatsapp_notification('close')
+            # Enviar notificação detalhada de fechamento de caixa via WhatsApp
+            try:
+                from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
+                sales_notifier = get_whatsapp_sales_notifier()
+
+                # Obter relatório completo da sessão
+                report = db.get_cash_session_report(self.session_id)
+                if report and report['session'] and report['sales']:
+                    session_data = report['session']
+                    session_data_dict = {
+                        'id': session_data['id'],
+                        'username': session_data['user_opened'],  # Nome do usuário que abriu
+                        'close_time': session_data['close_time'],
+                        'initial_amount': float(session_data['initial_amount']),
+                        'final_amount': float(session_data['final_amount']),
+                        'difference': float(session_data['difference'])
+                    }
+
+                    sales_notifier.notify_cash_closing(session_data_dict, report['sales'])
+            except Exception as e:
+                print(f"Aviso: Erro ao enviar notificação de fechamento de caixa: {e}")
         else:
             QMessageBox.critical(self, "Erro ao Fechar o Caixa", message)
 
@@ -480,19 +513,7 @@ class CashPage(QWidget):
                 return
 
             authorized_by_id = None
-            if amount > 50:
-                manager_user, ok_user = QInputDialog.getText(self, "Autorização Necessária", "Usuário do gerente:")
-                if not ok_user: return
-
-                manager_pass, ok_pass = QInputDialog.getText(self, "Autorização Necessária", f"Senha de {manager_user}:", echo=QLineEdit.EchoMode.Password)
-                if not ok_pass: return
-
-                manager = db.authenticate_user(manager_user, manager_pass)
-                if manager and manager['role'] == 'gerente':
-                    authorized_by_id = manager['id']
-                else:
-                    QMessageBox.critical(self, "Falha na Autorização", "Credenciais de gerente inválidas ou usuário não possui permissão.")
-                    return
+            # Removida solicitação de senha de gerente para valores altos
 
             db.add_cash_movement(self.session_id, self.current_user['id'], m_type, amount, reason, authorized_by_id)
             QMessageBox.information(self, "Sucesso", f"{title} registrado com sucesso.")
@@ -558,19 +579,46 @@ Caixa aberto com sucesso no sistema PDV."""
                     return
 
                 session_data = report['session']
-                total_sales = sum(Decimal(s['total']) for s in report['sales'])
+                sales_summary = report['sales']
+                total_sales = sum(Decimal(s['total']) for s in sales_summary)
 
+                # Calcular totais por forma de pagamento
+                payment_totals = {}
+                for sale in sales_summary:
+                    method = sale['payment_method']
+                    total = Decimal(sale['total'])
+                    payment_totals[method] = payment_totals.get(method, Decimal('0')) + total
+
+                # Construir detalhamento das vendas
+                sales_breakdown = ""
+                if payment_totals:
+                    sales_breakdown = "\n\n💰 *DETALHAMENTO DAS VENDAS:*"
+                    # Mapeamento de ícones para formas de pagamento
+                    payment_icons = {
+                        'Dinheiro': '💵',
+                        'PIX': '📱',
+                        'Débito': '💳',
+                        'Crédito': '💳',
+                    }
+
+                    for method, total in payment_totals.items():
+                        icon = payment_icons.get(method, '💰')
+                        sales_breakdown += f"\n{icon} {method}: R$ {total:.2f}"
+
+                # Construir mensagem com detalhamento completo
                 message = f"""❌ *CAIXA FECHADO*
 
 📅 Data/Hora: {session_data['close_time'].strftime('%d/%m/%Y %H:%M')}
 👤 Operador: {session_data['username']}
 💰 Saldo Inicial: R$ {session_data['initial_amount']:.2f}
 💰 Total de Vendas: R$ {total_sales:.2f}
-💰 Valor Contado: R$ {session_data['final_amount']:.2f}
-💰 Diferença: R$ {session_data['difference']:.2f}
-🆔 Sessão: #{session_data['id']}
+💰 Valor Contado: R$ {session_data['final_amount']:.2f}"""
 
-Caixa fechado com sucesso no sistema PDV."""
+                if session_data['difference'] != 0:
+                    diff_symbol = "+" if session_data['difference'] > 0 else ""
+                    message += f"\n⚠️ Diferença: {diff_symbol}R$ {session_data['difference']:.2f}"
+
+                message += f"{sales_breakdown}\n🆔 Sessão: #{session_data['id']}\n\nCaixa fechado com sucesso no sistema PDV."
 
             else:
                 print(f"[{datetime.now()}] WhatsApp: Ação desconhecida: {action}")
