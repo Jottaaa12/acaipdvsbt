@@ -73,7 +73,11 @@ class PrinterHandler:
             print("Impressora USB: Conectada com sucesso")
             return True, "Impressora USB conectada"
 
-        except ValueError:
+        except ValueError as e:
+            import logging
+            logging.warning(f"Erro ao converter Vendor ID/Product ID de USB: {e}")
+            self.error_message = f"Configuração da impressora USB inválida. Vendor ID e Product ID devem estar no formato hexadecimal válido (ex: 0x04b8, 0x0202)"
+            return False, self.error_message
             self.error_message = "Vendor ID e Product ID devem estar no formato hexadecimal (ex: 0x04b8)"
             return False, self.error_message
 

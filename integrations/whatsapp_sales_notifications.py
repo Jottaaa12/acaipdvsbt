@@ -114,20 +114,21 @@ class WhatsAppSalesNotifier:
             print(f"Erro ao notificar venda: {e}")
             return False
 
-    def notify_cash_opening(self, session_data: Dict[str, Any]) -> bool:
-        """Notifica abertura de caixa."""
+    def notify_cash_opening(self, user_name: str, initial_amount: float, summary_dict: Dict[str, Any]) -> bool:
+        """Notifica abertura de caixa recebendo dados brutos."""
         try:
             if not self.notification_settings.get('enable_cash_notifications', False):
                 return True
 
-            template = self.config.get_template('cash_opening')
-            message = template.format(
-                date=datetime.now().strftime('%d/%m/%Y'),
-                time=datetime.now().strftime('%H:%M'),
-                operator=session_data.get('username', 'Sistema'),
-                initial_amount=float(session_data.get('initial_amount', 0)),
-                session_id=session_data.get('id', 0)
-            )
+            # Construir mensagem completa da abertura de caixa
+            message = f"""✅ *CAIXA ABERTO*
+
+📅 Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+👤 Operador: {user_name}
+💰 Saldo Inicial: R$ {initial_amount:.2f}
+🆔 Sessão: #{summary_dict.get('id', 'nova_sessao')}
+
+Caixa aberto com sucesso no sistema PDV."""
 
             recipients = self._get_notification_recipients()
             success_count = 0
@@ -143,72 +144,28 @@ class WhatsAppSalesNotifier:
             print(f"Erro ao notificar abertura de caixa: {e}")
             return False
 
-    def notify_cash_closing(self, session_data: Dict[str, Any], sales_summary: List[Dict[str, Any]]) -> bool:
-        """Notifica fechamento de caixa com totais por forma de pagamento."""
+    def notify_cash_closing(self, user_name: str, initial_amount: float, summary_dict: Dict[str, Any]) -> bool:
+        """Notifica fechamento de caixa recebendo dados brutos."""
         try:
             if not self.notification_settings.get('enable_cash_notifications', False):
                 return True
 
-            # Calcular totais por forma de pagamento
-            payment_totals = {}
-            total_sales = Decimal('0')
-            cash_sales = Decimal('0')
-            card_sales = Decimal('0')
-            pix_sales = Decimal('0')
-
-            for sale in sales_summary:
-                method = sale['payment_method']
-                total = Decimal(str(sale.get('total', 0)))
-                total_sales += total
-
-                if method == 'Dinheiro':
-                    cash_sales += total
-                elif method in ['Débito', 'Crédito']:
-                    card_sales += total
-                elif method == 'PIX':
-                    pix_sales += total
-
-                payment_totals[method] = payment_totals.get(method, Decimal('0')) + total
-
-            # Construir detalhamento das vendas
-            sales_breakdown = ""
-            if self.notification_settings.get('detailed_payment_breakdown', True) and payment_totals:
-                sales_breakdown = "\n\n💰 *DETALHAMENTO DAS VENDAS:*"
-                payment_icons = {
-                    'Dinheiro': '💵',
-                    'PIX': '📱',
-                    'Débito': '💳',
-                    'Crédito': '💳',
-                }
-
-                for method, total in payment_totals.items():
-                    icon = payment_icons.get(method, '💰')
-                    sales_breakdown += f"\n{icon} {method}: R$ {total:.2f}"
-
-            # Construir alerta de diferença
+            # Construir mensagem completa do fechamento de caixa
+            difference = summary_dict.get('difference', 0)
             difference_alert = ""
-            difference = session_data.get('difference', 0)
             if difference != 0:
                 diff_symbol = "+" if difference > 0 else ""
                 difference_alert = f"\n⚠️ Diferença: {diff_symbol}R$ {abs(difference):.2f}"
 
-            template = self.config.get_template('cash_closing')
-            message = template.format(
-                date=datetime.now().strftime('%d/%m/%Y'),
-                time=datetime.now().strftime('%H:%M'),
-                operator=session_data.get('username', 'Sistema'),
-                initial_amount=float(session_data.get('initial_amount', 0)),
-                total_sales=float(total_sales),
-                cash_sales=float(cash_sales),
-                card_sales=float(card_sales),
-                pix_sales=float(pix_sales),
-                final_amount=float(session_data.get('final_amount', 0)),
-                session_id=session_data.get('id', 0),
-                difference_alert=difference_alert
-            )
+            message = f"""❌ *CAIXA FECHADO*
 
-            if sales_breakdown:
-                message = message.replace('\n🆔 Sessão', f'{sales_breakdown}\n🆔 Sessão')
+📅 Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+👤 Operador: {user_name}
+💰 Saldo Inicial: R$ {initial_amount:.2f}
+💰 Valor Contado: R$ {summary_dict.get('final_amount', 0):.2f}{difference_alert}
+🆔 Sessão: #{summary_dict.get('id', 0)}
+
+Caixa fechado com sucesso no sistema PDV."""
 
             recipients = self._get_notification_recipients()
             success_count = 0

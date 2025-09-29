@@ -126,14 +126,6 @@ class ProductManagementWindow(QWidget):
         sale_type = 'weight' if self.sale_type_combo.currentText() == "Por Peso" else 'unit'
         group_id = self.group_combo.currentData()
 
-    def save_product(self):
-        desc = self.desc_input.text()
-        barcode = self.barcode_input.text()
-        price_str = self.price_input.text()
-        stock_str = self.stock_input.text()
-        sale_type = 'weight' if self.sale_type_combo.currentText() == "Por Peso" else 'unit'
-        group_id = self.group_combo.currentData()
-
         if not all([desc, barcode, price_str, stock_str]):
             QMessageBox.warning(self, "Campos Incompletos", "Todos os campos são obrigatórios.")
             return

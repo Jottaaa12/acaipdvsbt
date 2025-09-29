@@ -121,7 +121,7 @@ class SalesHistoryPage(QWidget):
         self.sales_table.setRowCount(0)
         self.sale_details_table.setRowCount(0)
         self.show_message_in_table(self.sales_table, "Carregando histórico...")
-        worker = Worker(db.get_sales_by_period, start_date, end_date)
+        worker = Worker(db.get_sales_with_payment_methods_by_period, start_date, end_date)
         worker.signals.result.connect(self.populate_sales_table)
         worker.signals.error.connect(lambda err: print(f"Erro ao carregar histórico de vendas: {err}"))
         self.threadpool.start(worker)
@@ -140,11 +140,8 @@ class SalesHistoryPage(QWidget):
             self.sales_table.setItem(row, 0, QTableWidgetItem(str(sale['id'])))
             self.sales_table.setItem(row, 1, QTableWidgetItem(sale['sale_date']))
             self.sales_table.setItem(row, 2, QTableWidgetItem(f"{sale['total_amount']:.2f}"))
-            # Obter métodos de pagamento para esta venda
-            payment_methods = db.get_payment_summary_by_sale(sale['id'])
-            payment_text = ", ".join([f"{p['payment_method']} (R$ {p['amount']:.2f})" for p in payment_methods])
-            if not payment_text:
-                payment_text = "N/A"
+            # Usar método de pagamento diretamente da consulta otimizada
+            payment_text = sale.get('payment_methods_str', 'N/A')
             self.sales_table.setItem(row, 3, QTableWidgetItem(payment_text))
             self.sales_table.setItem(row, 4, QTableWidgetItem(sale['username'] or 'N/A'))
             total_value += sale['total_amount']

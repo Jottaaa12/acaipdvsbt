@@ -5,6 +5,7 @@ import database as db
 from integrations.whatsapp_manager import WhatsAppManager
 import json
 from utils import get_data_path, format_currency
+from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
 
 class CashManager(QObject):
     '''
@@ -40,26 +41,7 @@ class CashManager(QObject):
         
         self.thread_pool.start(worker)
 
-    def _send_whatsapp_notification(self, message):
-        try:
-            with open(get_data_path('config.json'), 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            
-            whatsapp_config = config.get('whatsapp', {})
-            notification_number = whatsapp_config.get('notification_number')
 
-            if not notification_number:
-                print("Número de telefone para notificações do WhatsApp não configurado.")
-                return
-
-            manager = WhatsAppManager.get_instance()
-            if manager.is_ready:
-                manager.send_message(notification_number, message)
-                print(f"Notificação de caixa enviada para {notification_number}")
-            else:
-                print("WhatsApp não está conectado. Não foi possível enviar a notificação de caixa.")
-        except Exception as e:
-            print(f"Erro ao enviar notificação do WhatsApp: {e}")
 
     def _prepare_and_send_open_notification(self, session_id):
         report = db.get_cash_session_report(session_id)
@@ -68,17 +50,10 @@ class CashManager(QObject):
 
         session_data = report['session']
         user_name = session_data.get('username', 'N/A')
-        open_time = session_data.get('open_time').strftime('%d/%m/%Y %H:%M')
-        initial_amount = session_data.get('initial_amount', 0)
+        initial_amount = float(session_data.get('initial_amount', 0))
 
-        message = (
-            f"✅ *Caixa Aberto*\n\n"
-            f"👤 *Usuário:* {user_name}\n"
-            f"⏰ *Horário:* {open_time}\n"
-            f"💰 *Valor Inicial:* {format_currency(initial_amount)}"
-        )
-        
-        self._send_whatsapp_notification(message)
+        sales_notifier = get_whatsapp_sales_notifier()
+        sales_notifier.notify_cash_opening(user_name, initial_amount, {'id': session_id})
 
     def _prepare_and_send_close_notification(self, session_id):
         report = db.get_cash_session_report(session_id)
@@ -87,35 +62,16 @@ class CashManager(QObject):
 
         session_data = report['session']
         user_name = session_data.get('username', 'N/A')
-        close_time = session_data.get('close_time').strftime('%d/%m/%Y %H:%M')
-        expected = session_data.get('expected_amount', 0)
-        counted = session_data.get('final_amount', 0)
-        difference = session_data.get('difference', 0)
-        observations = session_data.get('observations', 'Nenhuma')
-        
-        # New totals
-        total_revenue = report.get('total_revenue', 0)
-        total_after_sangria = report.get('total_after_sangria', 0)
+        initial_amount = float(session_data.get('initial_amount', 0))
 
-        message = (
-            f"🛑 *Caixa Fechado*\n\n"
-            f"👤 *Usuário:* {user_name}\n"
-            f"⏰ *Horário:* {close_time}\n\n"
-            f"----------\n"
-            f"📈 *Resumo Financeiro (Caixa Físico)*\n"
-            f"----------\n"
-            f"💰 *Valor Esperado:* {format_currency(expected)}\n"
-            f"💵 *Valor Contado:* {format_currency(counted)}\n"
-            f"⚖️ *Diferença:* {format_currency(difference, is_negative=(difference < 0))}\n\n"
-            f"----------\n"
-            f"📊 *Resumo de Vendas (Sessão)*\n"
-            f"----------\n"
-            f"💳 *Faturamento Bruto (Todas Formas):* {format_currency(total_revenue)}\n"
-            f"💸 *Faturamento - Sangrias:* {format_currency(total_after_sangria)}\n\n"
-            f"📝 *Observações:* {observations}"
-        )
-        
-        self._send_whatsapp_notification(message)
+        summary_dict = {
+            'id': session_id,
+            'final_amount': float(session_data.get('final_amount', 0)),
+            'difference': float(session_data.get('difference', 0))
+        }
+
+        sales_notifier = get_whatsapp_sales_notifier()
+        sales_notifier.notify_cash_closing(user_name, initial_amount, summary_dict)
 
     # --- Funções Públicas para Chamar Operações ---
 

@@ -917,12 +917,6 @@ class WhatsAppWorker(QThread):
                 self._handle_log_message(msg)
             elif msg_type == "message_result":
                 self._handle_message_result(msg)
-            else:
-                # Desativado log de erro para tipos de mensagem desconhecidos (None)
-                # self.logger.log_error(f"Tipo de mensagem desconhecido: {msg_type}",
-                #                     error_type='unknown_message_type',
-                #                     message=msg)
-                pass
 
         except Exception as e:
             self.logger.log_error(f"Erro ao processar mensagem do bridge: {e}",

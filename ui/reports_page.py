@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
 import database as db
+import csv
 from datetime import datetime, timedelta
 from decimal import Decimal
 from utils import format_currency
@@ -217,7 +218,7 @@ class ReportsPage(QWidget):
             self.cash_history_table.setItem(row, 0, QTableWidgetItem(str(item['id'])))
             self.cash_history_table.setItem(row, 1, QTableWidgetItem(open_time_str))
             self.cash_history_table.setItem(row, 2, QTableWidgetItem(close_time_str))
-            self.cash_history_table.setItem(row, 3, QTableWidgetItem(f"R$ {item['initial_amount']:.2f}"))
+            self.cash_history_table.setItem(row, 3, QTableWidgetItem(format_currency(item['initial_amount'])))
             self.cash_history_table.setItem(row, 4, QTableWidgetItem(f"R$ {item['expected_amount']:.2f}"))
             self.cash_history_table.setItem(row, 5, QTableWidgetItem(f"R$ {item['final_amount']:.2f}"))
             self.cash_history_table.setItem(row, 6, diff_item)
@@ -392,9 +393,9 @@ class ReportsPage(QWidget):
 
         # Atualiza resumo
         total_revenue = report_data['total_revenue']
-        self.total_revenue_label.setText(f"R$ {total_revenue:.2f}")
+        self.total_revenue_label.setText(format_currency(total_revenue))
         self.total_sales_label.setText(str(report_data['total_sales_count']))
-        self.avg_ticket_label.setText(f"R$ {report_data['average_ticket']:.2f}")
+        self.avg_ticket_label.setText(format_currency(report_data['average_ticket']))
 
         # Atualiza tabela de formas de pagamento
         self.payment_table.setRowCount(0)

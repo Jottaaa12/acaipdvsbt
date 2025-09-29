@@ -16,6 +16,7 @@ from ui.cash_manager import CashManager
 from ui.cash_closing_dialog import CashClosingDialog
 from integrations.whatsapp_manager import WhatsAppManager
 from PyQt6.QtCore import QThreadPool
+from .worker import Worker
 
 class CashPage(QWidget):
     '''Página refatorada para uma gestão de caixa moderna e completa.'''
@@ -29,6 +30,9 @@ class CashPage(QWidget):
         self.session_id = None
         self.last_initial_amount = None
         self.operators = []
+
+        # ThreadPool para operações assíncronas
+        self.threadpool = QThreadPool()
 
         # Gerenciador de operações de caixa assíncronas
         self.cash_manager = CashManager()
@@ -311,15 +315,16 @@ class CashPage(QWidget):
         self.history_end_date = QDateEdit(calendarPopup=True)
         self.history_end_date.setDate(QDate.currentDate())
         self.history_operator_filter = QComboBox()
-        filter_button = QPushButton(f'{IconTheme.get_icon("filter")} Filtrar')
-        filter_button.clicked.connect(self.load_session_history)
+        self.filter_button = QPushButton(f'{IconTheme.get_icon("filter")} Filtrar')
+        self.filter_button.clicked.connect(self.load_session_history)
+        self.original_filter_text = f'{IconTheme.get_icon("filter")} Filtrar'
         layout.addWidget(QLabel("De:"))
         layout.addWidget(self.history_start_date)
         layout.addWidget(QLabel("Até:"))
         layout.addWidget(self.history_end_date)
         layout.addWidget(QLabel("Operador:"))
         layout.addWidget(self.history_operator_filter)
-        layout.addWidget(filter_button)
+        layout.addWidget(self.filter_button)
         layout.addStretch()
         return widget
 
@@ -336,11 +341,24 @@ class CashPage(QWidget):
         self.movements_table.setRowCount(0)
 
     def load_session_history(self):
+        # Desabilitar botão e alterar texto
+        self.filter_button.setEnabled(False)
+        self.filter_button.setText("Carregando...")
+
         start_date = self.history_start_date.date().toString("yyyy-MM-dd")
         end_date = self.history_end_date.date().toString("yyyy-MM-dd")
         operator_id = self.history_operator_filter.currentData()
 
-        history = db.get_cash_session_history(start_date, end_date, operator_id)
+        worker = Worker(db.get_cash_session_history, start_date, end_date, operator_id)
+        worker.signals.result.connect(self.populate_history_table)
+        worker.signals.finished.connect(lambda: self.filter_button.setEnabled(True))
+        worker.signals.finished.connect(lambda: self.filter_button.setText(self.original_filter_text))
+        worker.signals.error.connect(lambda err: print(f"Erro ao carregar histórico de sessões: {err}"))
+        worker.signals.error.connect(lambda err: self.filter_button.setEnabled(True))
+        worker.signals.error.connect(lambda err: self.filter_button.setText(self.original_filter_text))
+        self.threadpool.start(worker)
+
+    def populate_history_table(self, history):
         self.history_table.setRowCount(len(history))
         for i, session in enumerate(history):
             diff = Decimal(session['difference'])
@@ -428,13 +446,11 @@ class CashPage(QWidget):
                 from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
                 sales_notifier = get_whatsapp_sales_notifier()
 
-                session_data = {
-                    'username': self.current_user['username'],
-                    'initial_amount': float(self.last_initial_amount),
-                    'id': 'nova_sessao'  # ID ainda não disponível neste momento
-                }
-
-                sales_notifier.notify_cash_opening(session_data)
+                sales_notifier.notify_cash_opening(
+                    self.current_user['username'],
+                    float(self.last_initial_amount),
+                    {'id': 'nova_sessao'}
+                )
             except Exception as e:
                 print(f"Aviso: Erro ao enviar notificação de abertura de caixa: {e}")
         else:
@@ -475,18 +491,19 @@ class CashPage(QWidget):
 
                 # Obter relatório completo da sessão
                 report = db.get_cash_session_report(self.session_id)
-                if report and report['session'] and report['sales']:
+                if report and report['session']:
                     session_data = report['session']
-                    session_data_dict = {
+                    summary_dict = {
                         'id': session_data['id'],
-                        'username': session_data['user_opened'],  # Nome do usuário que abriu
-                        'close_time': session_data['close_time'],
-                        'initial_amount': float(session_data['initial_amount']),
                         'final_amount': float(session_data['final_amount']),
                         'difference': float(session_data['difference'])
                     }
 
-                    sales_notifier.notify_cash_closing(session_data_dict, report['sales'])
+                    sales_notifier.notify_cash_closing(
+                        session_data['user_opened'],  # Nome do usuário que abriu
+                        float(session_data['initial_amount']),
+                        summary_dict
+                    )
             except Exception as e:
                 print(f"Aviso: Erro ao enviar notificação de fechamento de caixa: {e}")
         else:

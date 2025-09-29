@@ -408,6 +408,40 @@ def get_sales_by_period(start_date, end_date):
         
     return sales
 
+def get_sales_with_payment_methods_by_period(start_date, end_date):
+    """
+    Retorna todas as vendas dentro de um período de datas específico.
+    Usa uma única consulta otimizada com LEFT JOIN e GROUP_CONCAT.
+    """
+    conn = get_db_connection()
+
+    # Adiciona o horário para pegar o dia inteiro
+    start_datetime = f'{start_date} 00:00:00'
+    end_datetime = f'{end_date} 23:59:59'
+
+    query = '''
+        SELECT s.*, GROUP_CONCAT(pm.name, ', ') as payment_methods_str, u.username
+        FROM sales s
+        LEFT JOIN sale_payments sp ON s.id = sp.sale_id
+        LEFT JOIN payment_methods pm ON sp.payment_method = pm.name
+        LEFT JOIN users u ON s.user_id = u.id
+        WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
+        GROUP BY s.id
+        ORDER BY s.sale_date DESC
+    '''
+
+    rows = conn.execute(query, (start_datetime, end_datetime)).fetchall()
+    conn.close()
+
+    sales = []
+    for row in rows:
+        sale = dict(row)
+        # Usa a função from_cents que já existe no seu utils.py
+        sale['total_amount'] = to_reais(sale['total_amount'])
+        sales.append(sale)
+
+    return sales
+
 def get_items_for_sale(sale_id):
     conn = get_db_connection()
     rows = conn.execute('''

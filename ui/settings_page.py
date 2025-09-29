@@ -505,22 +505,36 @@ class SettingsPage(QWidget):
         QMessageBox.information(self, "Sucesso", "Configurações do WhatsApp salvas!")
 
     def test_scale_connection(self):
-        # Salva as configurações da UI no config.json. A própria função já lida com pop-ups de erro.
-        self.save_all_hardware_config()
+        # Desabilitar botão durante o teste
+        sender = self.sender()
+        if sender:
+            original_text = sender.text()
+            sender.setEnabled(False)
+            sender.setText("🔄 Testando...")
 
-        # Recarrega a configuração para passar ao handler
-        config = self.load_config()
-        hardware_mode = config.get('hardware_mode', 'test')
-        scale_config = config.get('scale', {})
+        try:
+            # Salva as configurações da UI no config.json. A própria função já lida com pop-ups de erro.
+            self.save_all_hardware_config()
 
-        # Reconfigura o handler. Ele tentará se reconectar em segundo plano.
-        self.scale_handler.reconfigure(mode=hardware_mode, **scale_config)
+            # Recarrega a configuração para passar ao handler
+            config = self.load_config()
+            hardware_mode = config.get('hardware_mode', 'test')
+            scale_config = config.get('scale', {})
 
-        # Informa o usuário sobre a ação
-        QMessageBox.information(self, "Configuração Aplicada",
-                                "As novas configurações da balança foram aplicadas.\n\n"
-                                "O sistema tentará se reconectar em segundo plano. "
-                                "Verifique o status no Dashboard.")
+            # Reconfigura o handler. Ele tentará se reconectar em segundo plano.
+            self.scale_handler.reconfigure(mode=hardware_mode, **scale_config)
+
+            # Informa o usuário sobre a ação
+            QMessageBox.information(self, "Configuração Aplicada",
+                                    "As novas configurações da balança foram aplicadas.\n\n"
+                                    "O sistema tentará se reconectar em segundo plano. "
+                                    "Verifique o status no Dashboard.")
+
+        finally:
+            # Reabilitar botão
+            if sender:
+                sender.setEnabled(True)
+                sender.setText(original_text)
 
     def on_printer_type_changed(self, printer_type):
         """Mostra/esconde os campos de configuração baseado no tipo de impressora selecionado."""
@@ -600,6 +614,13 @@ class SettingsPage(QWidget):
 
     def test_printer_connection(self):
         """Testa a conexão com a impressora usando as configurações atuais."""
+        # Desabilitar botão durante o teste
+        sender = self.sender()
+        if sender:
+            original_text = sender.text()
+            sender.setEnabled(False)
+            sender.setText("🔄 Testando...")
+
         try:
             # Salva as configurações atuais primeiro
             self.save_printer_config()
