@@ -77,16 +77,37 @@ function safeLog(obj) {
 
     sock.ev.on('messages.upsert', m => {
         m.messages.forEach(msg => {
-            if (!msg.message || msg.key.fromMe) {
+            if (!msg.message || msg.key.fromMe || !msg.key.remoteJid || msg.key.remoteJid.endsWith('status@broadcast')) {
                 return;
             }
-            const sender = msg.key.remoteJid;
+
+            const chatJid = msg.key.remoteJid;
+            const isGroup = chatJid.endsWith('@g.us');
+            
+            let senderJid;
+            if (isGroup) {
+                // Em grupo, o remetente é sempre o 'participant'
+                senderJid = msg.key.participant;
+            } else if (msg.key.senderPn) {
+                // Em chat privado, se 'senderPn' existir, ele contém o número real (caso de LIDs)
+                senderJid = msg.key.senderPn;
+            } else {
+                // Fallback para o JID do chat (conversas privadas normais)
+                senderJid = chatJid;
+            }
+
+            // Se não for possível determinar o remetente, ignora.
+            if (!senderJid) {
+                return;
+            }
+
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
-            if (sender && text) {
+            
+            if (text) {
                 safeLog({
                     type: 'message',
                     data: {
-                        sender: sender.split('@')[0],
+                        sender: senderJid.split('@')[0],
                         text: text
                     }
                 });

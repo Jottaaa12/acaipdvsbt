@@ -188,12 +188,9 @@ def create_tables():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log (timestamp);')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_log_user_action ON audit_log (user_id, action);')
 
-    # Criar índice adicional para produtos ativos se a coluna existir
-    try:
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_active ON products (active, stock);')
-    except sqlite3.OperationalError:
-        # Coluna 'active' não existe, ignorar índice
-        pass
+    # Criar índice adicional para produtos por barcode e grupo
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_barcode_active ON products (barcode, stock);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_group_active ON products (group_id, stock);')
 
     # Criar usuário administrador padrão se não existir
     cursor.execute('SELECT COUNT(*) FROM users WHERE role = "gerente"')
@@ -287,13 +284,40 @@ def get_product_by_barcode_cached(barcode: str):
 def get_product_by_barcode(barcode):
     """Busca produto por código de barras."""
     conn = get_db_connection()
-    row = conn.execute('SELECT * FROM products WHERE barcode = ?', (barcode,)).fetchone()
+    row = conn.execute('SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.barcode = ?', (barcode,)).fetchone()
     conn.close()
     if row:
         product = dict(row)
         if product['price'] is not None:
             product['price'] = to_reais(product['price'])
+        if product['stock'] is not None:
+            product['stock'] = Decimal(product['stock']) / Decimal('1000')
         return product
+    return None
+
+def get_product_by_barcode_or_name(identifier: str):
+    """Busca um produto pelo código de barras (exato) ou pelo nome (parcial)."""
+    # Tenta primeiro pelo código de barras
+    product = get_product_by_barcode(identifier)
+    if product:
+        return product
+
+    # Se não encontrar, busca pelo nome
+    conn = get_db_connection()
+    row = conn.execute(
+        'SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.description LIKE ? LIMIT 1', 
+        (f'%{identifier}%',)
+    ).fetchone()
+    conn.close()
+    
+    if row:
+        product = dict(row)
+        if product['price'] is not None:
+            product['price'] = to_reais(product['price'])
+        if product['stock'] is not None:
+            product['stock'] = Decimal(product['stock']) / Decimal('1000')
+        return product
+        
     return None
 
 def clear_product_cache():
@@ -351,6 +375,46 @@ def delete_product(product_id):
         return False, "Erro: Este produto não pode ser deletado pois está associado a vendas existentes."
     except sqlite3.Error as e:
         return False, f"Erro de banco de dados ao deletar produto: {e}"
+    finally:
+        conn.close()
+
+def update_stock_by_barcode(barcode: str, new_stock: float, user_id: int):
+    """Atualiza o estoque de um produto pelo código de barras."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Converte o novo estoque para o formato de inteiro
+        stock_decimal = Decimal(str(new_stock))
+        stock_integer = int(stock_decimal * 1000)
+
+        # Busca o produto para log de auditoria
+        old_product = get_product_by_barcode(barcode)
+        if not old_product:
+            return False, "Produto não encontrado."
+
+        cursor.execute(
+            'UPDATE products SET stock = ?, quantity = ? WHERE barcode = ?',
+            (stock_integer, stock_integer, barcode)
+        )
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            log_audit(
+                user_id, 
+                'STOCK_ADJUSTMENT', 
+                'products', 
+                old_product['id'], 
+                old_values=f"Estoque anterior: {old_product['stock']}", 
+                new_values=f"Novo estoque: {new_stock}"
+            )
+            return True, "Estoque atualizado com sucesso."
+        
+        return False, "Produto com o código de barras não encontrado."
+    except (ValueError, InvalidOperation):
+        return False, "Valor de estoque inválido."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Erro de banco de dados: {e}"
     finally:
         conn.close()
 
@@ -952,6 +1016,12 @@ def get_cash_session_report(session_id):
             session_dict['observations'] = ''
 
     # Vendas
+    total_change_cents = conn.execute('''
+        SELECT COALESCE(SUM(change_amount), 0) as total
+        FROM sales
+        WHERE cash_session_id = ? AND training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
     sales_rows = conn.execute('''
         SELECT
             sp.payment_method,
@@ -965,6 +1035,9 @@ def get_cash_session_report(session_id):
     sales_list = []
     for row in sales_rows:
         sale = dict(row)
+        if sale['payment_method'] == 'Dinheiro':
+            sale['total'] -= total_change_cents
+        
         if sale.get('total') is not None:
             sale['total'] = to_reais(sale['total'])
         sales_list.append(sale)
@@ -1179,6 +1252,13 @@ def get_user_by_id(user_id):
     conn.close()
     return dict(user) if user else None
 
+def get_user_by_username(username: str):
+    """Retorna dados do usuário pelo nome de usuário."""
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return dict(user) if user else None
+
 def get_sales_by_cash_session(session_id):
     """Retorna todas as vendas de uma sessão de caixa."""
     conn = get_db_connection()
@@ -1193,6 +1273,13 @@ def get_sales_by_cash_session(session_id):
 def get_payment_summary_by_cash_session(session_id):
     """Retorna resumo de vendas por forma de pagamento para uma sessão."""
     conn = get_db_connection()
+
+    total_change_cents = conn.execute('''
+        SELECT COALESCE(SUM(change_amount), 0) as total
+        FROM sales
+        WHERE cash_session_id = ? AND training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
     rows = conn.execute('''
         SELECT sp.payment_method, COUNT(DISTINCT sp.sale_id) as count, SUM(sp.amount) as total
         FROM sale_payments sp
@@ -1206,6 +1293,9 @@ def get_payment_summary_by_cash_session(session_id):
     summary = []
     for row in rows:
         item = dict(row)
+        if item['payment_method'] == 'Dinheiro':
+            item['total'] -= total_change_cents
+        
         if item.get('total') is not None:
             item['total'] = to_reais(item['total'])
         summary.append(item)
@@ -1359,6 +1449,12 @@ def get_sales_report(start_date, end_date):
     general_summary_row = conn.execute(general_summary_query, params).fetchone()
 
     # 2. Vendas por Forma de Pagamento - Agora usando a tabela sale_payments
+    total_change_cents = conn.execute('''
+        SELECT COALESCE(SUM(change_amount), 0) as total
+        FROM sales
+        WHERE sale_date BETWEEN ? AND ? AND training_mode = 0
+    ''', params).fetchone()['total']
+
     payment_method_query = '''
         SELECT
             sp.payment_method,
@@ -1398,6 +1494,8 @@ def get_sales_report(start_date, end_date):
     payment_methods_list = []
     for row in payment_methods_rows:
         method = dict(row)
+        if method['payment_method'] == 'Dinheiro':
+            method['total'] -= total_change_cents
         method['total'] = to_reais(method['total'])
         payment_methods_list.append(method)
 
@@ -1413,6 +1511,58 @@ def get_sales_report(start_date, end_date):
         'average_ticket': average_ticket,
         'payment_methods': payment_methods_list,
         'top_products': top_products_list
+    }
+
+def get_current_cash_status():
+    """Retorna um dicionário com o status completo do caixa aberto no momento."""
+    session = get_current_cash_session()
+    if not session:
+        return {'status': 'FECHADO'}
+
+    conn = get_db_connection()
+    session_id = session['id']
+
+    # Soma dos pagamentos em dinheiro
+    total_cash_payments_cents = conn.execute('''
+        SELECT COALESCE(SUM(sp.amount), 0) as total
+        FROM sale_payments sp
+        JOIN sales s ON sp.sale_id = s.id
+        WHERE s.cash_session_id = ? AND sp.payment_method = 'Dinheiro' AND s.training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
+    # Soma do troco
+    total_change_cents = conn.execute('''
+        SELECT COALESCE(SUM(s.change_amount), 0) as total
+        FROM sales s
+        WHERE s.cash_session_id = ? AND s.training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
+    cash_sales_cents = total_cash_payments_cents - total_change_cents
+
+    # Soma movimentos
+    movements_cents = conn.execute('''
+        SELECT 
+            COALESCE(SUM(CASE WHEN type = 'suprimento' THEN amount ELSE 0 END), 0) as suprimentos,
+            COALESCE(SUM(CASE WHEN type = 'sangria' THEN amount ELSE 0 END), 0) as sangrias
+        FROM cash_movements 
+        WHERE session_id = ?
+    ''', (session_id,)).fetchone()
+
+    conn.close()
+
+    initial_amount_cents = to_cents(session['initial_amount'])
+    current_balance_cents = initial_amount_cents + cash_sales_cents + movements_cents['suprimentos'] - movements_cents['sangrias']
+
+    return {
+        'status': 'ABERTO',
+        'user_id': session['user_id'],
+        'username': session['username'],
+        'open_time': session['open_time'],
+        'initial_amount': session['initial_amount'],
+        'cash_sales': to_reais(cash_sales_cents),
+        'suprimentos': to_reais(movements_cents['suprimentos']),
+        'sangrias': to_reais(movements_cents['sangrias']),
+        'current_balance': to_reais(current_balance_cents)
     }
 
 def get_stock_report():

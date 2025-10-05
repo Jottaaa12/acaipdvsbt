@@ -36,7 +36,28 @@ class WhatsAppLogger:
         self.log_file = log_file or get_data_path("whatsapp.log")
         self._setup_logger()
         self._message_log_file = get_data_path("whatsapp_messages.log")
+        self._command_log_file = get_data_path("whatsapp_commands.log")
         self._lock = threading.Lock()
+
+    def log_command(self, sender: str, command: str, success: bool, response_preview: str = ""):
+        """Log de auditoria para comandos recebidos."""
+        command_data = {
+            'timestamp': datetime.now().isoformat(),
+            'sender': sender,
+            'command': command,
+            'success': success,
+            'response_preview': response_preview[:150]
+        }
+        self._save_command_audit(command_data)
+
+    def _save_command_audit(self, command_data: Dict[str, Any]):
+        """Salva auditoria de comandos em arquivo separado."""
+        with self._lock:
+            try:
+                with open(self._command_log_file, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(command_data, ensure_ascii=False) + '\n')
+            except Exception as e:
+                self.logger.error(f"Falha ao salvar auditoria de comando: {e}", extra={'error_type': 'command_audit_save_failed'})
 
     def _setup_logger(self):
         """Configura o logger principal com formato JSON estruturado."""

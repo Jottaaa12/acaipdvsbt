@@ -36,6 +36,9 @@ class SalesPage(QWidget):
         self.scale_handler.weight_updated.connect(self._on_weight_updated)
         self.scale_handler.error_occurred.connect(self._on_scale_error)
 
+        # Listas para rastrear conexões que precisam ser desconectadas
+        self._signal_connections = []
+
         self.setup_ui()
 
     def _on_weight_updated(self, weight):
@@ -202,7 +205,6 @@ class SalesPage(QWidget):
         self.load_print_config()
         
         # Conexões
-        self.product_code_input.returnPressed.connect(self.handle_enter_pressed)
         self.search_product_button.clicked.connect(self.open_product_search_dialog)
         self.finish_sale_button.clicked.connect(self.open_payment_dialog)
         self.cancel_sale_button.clicked.connect(self.cancel_sale)
@@ -223,6 +225,9 @@ class SalesPage(QWidget):
         QShortcut(QKeySequence("F3"), self).activated.connect(self.hold_current_sale)
         QShortcut(QKeySequence("F4"), self).activated.connect(self.resume_held_sale)
         QShortcut(QKeySequence("F5"), self).activated.connect(self.open_product_search_dialog)
+        # Atalho global para a tecla Enter
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self).activated.connect(self.handle_enter_pressed)
+        QShortcut(QKeySequence(Qt.Key.Key_Enter), self).activated.connect(self.handle_enter_pressed)
 
     # --- Funções de Busca de Produto ---
     def open_product_search_dialog(self):
@@ -642,6 +647,18 @@ class SalesPage(QWidget):
                 self.main_window.change_page("cash")
             return False
         return True
+
+    def showEvent(self, event):
+        """Sobrescreve o evento que é chamado quando o widget é exibido."""
+        logging.info("Acessando a tela de vendas.")
+        # A balança agora é iniciada na janela principal, então não precisamos fazer nada aqui.
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        """Sobrescreve o evento que é chamado quando o widget é ocultado."""
+        logging.info("Saindo da tela de vendas.")
+        # Não vamos mais parar a balança ao sair da tela.
+        super().hideEvent(event)
 
     def reload_data(self):
         self.reload_shortcuts()

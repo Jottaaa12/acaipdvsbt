@@ -63,6 +63,7 @@ class WhatsAppManager(QObject):
 
         # Cache e rate limiting
         self._phone_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_lock = threading.RLock()  # Lock específico para operações de cache
         self._message_counts: Dict[str, List[datetime]] = {}  # Para rate limiting
 
         # Health monitoring
@@ -72,6 +73,7 @@ class WhatsAppManager(QObject):
 
         # Histórico de mensagens
         self._message_history: List[Dict[str, Any]] = []
+        self._history_lock = threading.RLock()  # Lock específico para histórico
 
         # Carregar estado persistente
         self._load_persistent_cache()
@@ -81,8 +83,8 @@ class WhatsAppManager(QObject):
         if self.config.get('monitoring.enable_health_checks', True):
             self._start_health_monitoring()
 
-        # Instanciar o handler de comandos, injetando a dependência do manager
-        self.command_handler = CommandHandler(self)
+        # Instanciar o handler de comandos (agora sem dependências)
+        self.command_handler = CommandHandler()
 
     def connect(self, force_reconnect: bool = False) -> bool:
         """
@@ -291,6 +293,11 @@ class WhatsAppManager(QObject):
 
         return history[-limit:] if history else []
 
+    def update_authorized_users(self):
+        """Informa ao CommandHandler para recarregar a lista de usuários autorizados."""
+        if self.command_handler:
+            self.command_handler.update_authorized_managers()
+
     # Métodos privados de validação e cache
     def _validate_message_inputs(self, phone: str, message: str) -> Dict[str, Any]:
         """Valida inputs da mensagem."""
@@ -367,30 +374,32 @@ class WhatsAppManager(QObject):
 
     def _check_phone_cache(self, phone: str) -> Dict[str, Any]:
         """Verifica número no cache."""
-        cache_entry = self._phone_cache.get(phone)
-        if not cache_entry:
-            return {'action': 'verify', 'error': None}
+        with self._cache_lock:
+            cache_entry = self._phone_cache.get(phone)
+            if not cache_entry:
+                return {'action': 'verify', 'error': None}
 
-        # Verificar TTL
-        ttl_hours = self.config.get('validation.phone_verification_ttl_hours', 24)
-        if datetime.now() - cache_entry['timestamp'] > timedelta(hours=ttl_hours):
-            del self._phone_cache[phone]
-            self._save_persistent_cache()
-            return {'action': 'verify', 'error': None}
+            # Verificar TTL
+            ttl_hours = self.config.get('validation.phone_verification_ttl_hours', 24)
+            if datetime.now() - cache_entry['timestamp'] > timedelta(hours=ttl_hours):
+                del self._phone_cache[phone]
+                self._save_persistent_cache()
+                return {'action': 'verify', 'error': None}
 
-        # Retornar resultado do cache
-        if not cache_entry['exists']:
-            return {'action': 'block', 'error': 'Número não existe no WhatsApp'}
+            # Retornar resultado do cache
+            if not cache_entry['exists']:
+                return {'action': 'block', 'error': 'Número não existe no WhatsApp'}
 
-        return {'action': 'allow', 'error': None}
+            return {'action': 'allow', 'error': None}
 
     def _update_phone_cache(self, phone: str, exists: bool):
         """Atualiza cache de números."""
-        self._phone_cache[phone] = {
-            'exists': exists,
-            'timestamp': datetime.now()
-        }
-        self._save_persistent_cache()
+        with self._cache_lock:
+            self._phone_cache[phone] = {
+                'exists': exists,
+                'timestamp': datetime.now()
+            }
+            self._save_persistent_cache()
 
     def _record_message_attempt(self, message_id: str, phone: str, message: str):
         """Registra tentativa de envio no histórico."""
@@ -924,9 +933,13 @@ class WhatsAppWorker(QThread):
             elif msg_type == "message":
                 message_data = msg.get("data", {})
                 if message_data:
-                    self.manager.command_handler.process_command(message_data)
-            elif msg_type == "incoming_command":
-                self.manager.command_handler.process_command(msg.get("data", {}))
+                    response, recipient = self.manager.command_handler.process_command(message_data, self.manager)
+                    if response and recipient:
+                        self.manager.send_message(recipient, response, message_type='command_response')
+            elif msg_type == "incoming_command": # Manter compatibilidade se houver outro uso
+                response, recipient = self.manager.command_handler.process_command(msg.get("data", {}), self.manager)
+                if response and recipient:
+                    self.manager.send_message(recipient, response, message_type='command_response')
 
         except Exception as e:
             self.logger.log_error(f"Erro ao processar mensagem do bridge: {e}",
@@ -1168,16 +1181,37 @@ function safeLog(obj) {
 
     sock.ev.on('messages.upsert', m => {
         m.messages.forEach(msg => {
-            if (!msg.message || msg.key.fromMe) {
+            if (!msg.message || msg.key.fromMe || !msg.key.remoteJid || msg.key.remoteJid.endsWith('status@broadcast')) {
                 return;
             }
-            const sender = msg.key.remoteJid;
+
+            const chatJid = msg.key.remoteJid;
+            const isGroup = chatJid.endsWith('@g.us');
+            
+            let senderJid;
+            if (isGroup) {
+                // Em grupo, o remetente é sempre o 'participant'
+                senderJid = msg.key.participant;
+            } else if (msg.key.senderPn) {
+                // Em chat privado, se 'senderPn' existir, ele contém o número real (caso de LIDs)
+                senderJid = msg.key.senderPn;
+            } else {
+                // Fallback para o JID do chat (conversas privadas normais)
+                senderJid = chatJid;
+            }
+
+            // Se não for possível determinar o remetente, ignora.
+            if (!senderJid) {
+                return;
+            }
+
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
-            if (sender && text) {
+            
+            if (text) {
                 safeLog({
                     type: 'message',
                     data: {
-                        sender: sender.split('@')[0],
+                        sender: senderJid.split('@')[0],
                         text: text
                     }
                 });

@@ -561,6 +561,7 @@ class ModernDashboard(QWidget):
 
 import json
 from utils import get_data_path
+from config_manager import ConfigManager
 
 class ModernMainWindow(QMainWindow):
     """Janela principal moderna"""
@@ -572,8 +573,9 @@ class ModernMainWindow(QMainWindow):
         self.current_user = current_user
         self.current_cash_session = None
 
-        # Carregar configuração
-        self.config = self.load_config()
+        # Gerenciador de Configuração
+        self.config_manager = ConfigManager()
+        self.config = self.config_manager.get_config()
         hardware_mode = self.config.get('hardware_mode', 'test')
         
         self.setWindowTitle(f"PDV Açaí - {current_user['username']}")
@@ -588,6 +590,9 @@ class ModernMainWindow(QMainWindow):
             self.config.get('printer', {})
         )
         
+        # Inicia o handler da balança globalmente
+        self.scale_handler.start()
+
         self.log_console_dialog = LogConsoleDialog(self)
 
         self.setup_ui()
@@ -598,19 +603,15 @@ class ModernMainWindow(QMainWindow):
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_data)
         self.update_timer.start(30000)  # 30 segundos
-    
-    def load_config(self):
-        try:
-            with open(get_data_path('config.json'), 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            # Retorna uma config padrão em caso de erro
-            return {
-                "hardware_mode": "test",
-                "scale": {},
-                "printer": {}
-            }
 
+        # Armazena a data da última atualização do dashboard
+        self.last_dashboard_date = datetime.now().date()
+
+        # Timer para checagem de data (reiniciar dashboard)
+        self.daily_refresh_timer = QTimer()
+        self.daily_refresh_timer.timeout.connect(self.check_date_and_refresh)
+        self.daily_refresh_timer.start(60000)  # Checa a cada 1 minuto
+    
     def setup_ui(self):
         """Configura a interface principal"""
         central_widget = QWidget()
@@ -666,7 +667,7 @@ class ModernMainWindow(QMainWindow):
     def reload_hardware_handlers(self):
         """Recarrega os handlers de hardware quando o modo de operação muda."""
         logging.info("ModernMainWindow: Recebido sinal para recarregar os handlers de hardware.")
-        self.config = self.load_config()
+        self.config = self.config_manager.get_config()
         hardware_mode = self.config.get('hardware_mode', 'test')
 
         # Reconfigura os handlers existentes
@@ -827,6 +828,15 @@ class ModernMainWindow(QMainWindow):
         # self.check_cash_session() # Removido: agora é baseado em evento
         if "dashboard" in self.pages:
             self.pages["dashboard"].update_dashboard_data()
+
+    def check_date_and_refresh(self):
+        """Verifica se o dia mudou e atualiza o dashboard se necessário."""
+        today = datetime.now().date()
+        if today != self.last_dashboard_date:
+            logging.info(f"Novo dia detectado ({today}). Atualizando o dashboard.")
+            self.last_dashboard_date = today
+            # Chama a atualização da página do dashboard
+            self.change_page("dashboard")
     
     def apply_theme(self):
         """Aplica o tema moderno"""
@@ -835,6 +845,12 @@ class ModernMainWindow(QMainWindow):
     def logout(self):
         """Realiza logout"""
         self.logout_requested.emit()
+
+    def closeEvent(self, event):
+        """Garante que os handlers de hardware sejam parados corretamente ao fechar."""
+        logging.info("Fechando a janela principal. Parando handlers.")
+        self.scale_handler.stop()
+        super().closeEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_F11:

@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 import database as db
+from integrations.whatsapp_manager import WhatsAppManager
 
 class UserManagementPage(QWidget):
     def __init__(self, parent=None):
@@ -157,6 +158,13 @@ class UserManagementPage(QWidget):
                 QMessageBox.information(self, "Sucesso", "Usuário atualizado com sucesso!")
             else:
                 QMessageBox.warning(self, "Erro ao Atualizar", message)
+
+        # Notifica o WhatsApp Manager para atualizar a lista de usuários autorizados
+        try:
+            WhatsAppManager.get_instance().update_authorized_users()
+        except Exception as e:
+            # Logar o erro seria ideal aqui, mas por enquanto evitamos que a UI quebre
+            print(f"Falha ao notificar o WhatsApp Manager sobre a atualização de usuários: {e}")
 
         self.load_users()
         self.clear_form()

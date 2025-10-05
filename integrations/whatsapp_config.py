@@ -203,12 +203,23 @@ class WhatsAppConfig:
         # Normalizar (remover formatação)
         normalized = re.sub(r'[^\d]', '', phone)
 
-        # Adicionar código do país se necessário
-        if self.config['validation']['require_country_code'] and not normalized.startswith('55'):
-            normalized = '55' + normalized
+        # Remover o código do país (55) para facilitar a manipulação
+        if normalized.startswith('55'):
+            number_without_cc = normalized[2:]
+        else:
+            number_without_cc = normalized
+
+        # Verificar se é um número de celular brasileiro (DDD de 11 a 99)
+        # e se tem 10 dígitos (DDD + 8 dígitos), o que indica a falta do 9
+        if 11 <= int(number_without_cc[:2]) <= 99 and len(number_without_cc) == 10:
+            # Adiciona o nono dígito '9' após o DDD
+            number_without_cc = number_without_cc[:2] + '9' + number_without_cc[2:]
+
+        # Remontar o número com o código do país
+        final_number = '55' + number_without_cc
 
         result['valid'] = True
-        result['normalized'] = normalized
+        result['normalized'] = final_number
 
         return result
 
