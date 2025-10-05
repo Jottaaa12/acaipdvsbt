@@ -6,6 +6,7 @@ from integrations.whatsapp_manager import WhatsAppManager
 import json
 from utils import get_data_path, format_currency
 from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
+import logging
 
 class CashManager(QObject):
     '''
@@ -28,17 +29,17 @@ class CashManager(QObject):
     def __init__(self):
         super().__init__()
         self.thread_pool = QThreadPool()
-        print("CashManager inicializado. Usando QThreadPool.")
+        logging.info("CashManager inicializado. Usando QThreadPool.")
 
     def _execute_worker(self, fn, *args, on_result, on_error=None, on_finished=None):
         '''Cria e executa um worker para a função fornecida.'''
         worker = Worker(fn, *args)
-        worker.signals.result.connect(on_result)
+        worker.signals.finished.connect(on_result)
         if on_error:
             worker.signals.error.connect(on_error)
         if on_finished:
             worker.signals.finished.connect(on_finished)
-        
+
         self.thread_pool.start(worker)
 
 
@@ -58,20 +59,11 @@ class CashManager(QObject):
     def _prepare_and_send_close_notification(self, session_id):
         report = db.get_cash_session_report(session_id)
         if not report or not report.get('session'):
+            logging.warning(f"Não foi possível gerar o relatório para a sessão de caixa {session_id}.")
             return
 
-        session_data = report['session']
-        user_name = session_data.get('username', 'N/A')
-        initial_amount = float(session_data.get('initial_amount', 0))
-
-        summary_dict = {
-            'id': session_id,
-            'final_amount': float(session_data.get('final_amount', 0)),
-            'difference': float(session_data.get('difference', 0))
-        }
-
         sales_notifier = get_whatsapp_sales_notifier()
-        sales_notifier.notify_cash_closing(user_name, initial_amount, summary_dict)
+        sales_notifier.notify_cash_closing(report)
 
     # --- Funções Públicas para Chamar Operações ---
 
@@ -116,8 +108,8 @@ class CashManager(QObject):
             self._execute_worker(
                 self._prepare_and_send_open_notification,
                 session_id,
-                on_result=lambda: print("Worker de notificação de abertura de caixa concluído."),
-                on_error=lambda err: print(f"Erro no worker de notificação de abertura: {err}")
+                on_result=lambda: logging.info("Worker de notificação de abertura de caixa concluído."),
+                on_error=lambda err: logging.error(f"Erro no worker de notificação de abertura: {err}")
             )
 
     def _on_close_session_result(self, result, session_id):
@@ -129,8 +121,8 @@ class CashManager(QObject):
             self._execute_worker(
                 self._prepare_and_send_close_notification,
                 session_id,
-                on_result=lambda: print("Worker de notificação de fechamento de caixa concluído."),
-                on_error=lambda err: print(f"Erro no worker de notificação de fechamento: {err}")
+                on_result=lambda: logging.info("Worker de notificação de fechamento de caixa concluído."),
+                on_error=lambda err: logging.error(f"Erro no worker de notificação de fechamento: {err}")
             )
 
     def _on_get_status_result(self, result):

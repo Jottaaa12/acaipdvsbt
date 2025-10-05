@@ -440,6 +440,7 @@ class IconTheme:
     REPORTS = "📊"
     SETTINGS = "⚙️"
     USERS = "👤"
+    DATABASE = "🗄️" # Novo ícone para gerenciamento de dados
     CASH = "💵"
     HISTORY = "🕒"
     LOGOUT = "🚪"

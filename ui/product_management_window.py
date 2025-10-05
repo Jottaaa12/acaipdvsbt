@@ -1,11 +1,11 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QComboBox, QMessageBox, QHeaderView
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThreadPool
 from decimal import Decimal, InvalidOperation
 import database as db
-from .worker import Worker
+from .worker import Worker, WorkerSignals
 
 class ProductManagementWindow(QWidget):
     data_changed = pyqtSignal()
@@ -77,7 +77,7 @@ class ProductManagementWindow(QWidget):
         self.products_table.setRowCount(0)
         self.show_loading_message()
         worker = Worker(db.get_all_products)
-        worker.signals.result.connect(self.populate_products_table)
+        worker.signals.finished.connect(lambda: self.populate_products_table(db.get_all_products()))
         self.threadpool.start(worker)
 
     def populate_products_table(self, products):

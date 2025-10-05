@@ -48,3 +48,4 @@ backups/
 
 # Node.js dependencies
 node_modules/
+.escpos-cache/

@@ -23,6 +23,7 @@ except Exception:
 # Módulos WhatsApp customizados
 from .whatsapp_logger import get_whatsapp_logger
 from .whatsapp_config import get_whatsapp_config
+from .whatsapp_command_handler import CommandHandler
 
 # Renderização de QR via Python (sem browser)
 try:
@@ -80,6 +81,9 @@ class WhatsAppManager(QObject):
         if self.config.get('monitoring.enable_health_checks', True):
             self._start_health_monitoring()
 
+        # Instanciar o handler de comandos, injetando a dependência do manager
+        self.command_handler = CommandHandler(self)
+
     def connect(self, force_reconnect: bool = False) -> bool:
         """
         Inicia conexão com WhatsApp.
@@ -124,7 +128,7 @@ class WhatsAppManager(QObject):
                 self.error_occurred.emit(self.config.get_friendly_error_message('connection_failed'))
                 return False
 
-    def send_message(self, phone_number: str, message: str, bypass_cache: bool = False) -> Dict[str, Any]:
+    def send_message(self, phone_number: str, message: str, bypass_cache: bool = False, message_type: str = 'normal') -> Dict[str, Any]:
         """
         Envia mensagem com validações robustas.
 
@@ -156,7 +160,7 @@ class WhatsAppManager(QObject):
             phone_normalized = validation_result['normalized_phone']
 
             # Verificar rate limiting
-            if self._is_rate_limited(phone_normalized):
+            if self._is_rate_limited(phone_normalized, message_type):
                 error_msg = self.config.get_friendly_error_message('rate_limited')
                 result['error'] = error_msg
                 result['error_type'] = 'rate_limited'
@@ -917,6 +921,12 @@ class WhatsAppWorker(QThread):
                 self._handle_log_message(msg)
             elif msg_type == "message_result":
                 self._handle_message_result(msg)
+            elif msg_type == "message":
+                message_data = msg.get("data", {})
+                if message_data:
+                    self.manager.command_handler.process_command(message_data)
+            elif msg_type == "incoming_command":
+                self.manager.command_handler.process_command(msg.get("data", {}))
 
         except Exception as e:
             self.logger.log_error(f"Erro ao processar mensagem do bridge: {e}",
@@ -1154,6 +1164,25 @@ function safeLog(obj) {
         } else {
             safeLog({ type: 'status', data: connection });
         }
+    });
+
+    sock.ev.on('messages.upsert', m => {
+        m.messages.forEach(msg => {
+            if (!msg.message || msg.key.fromMe) {
+                return;
+            }
+            const sender = msg.key.remoteJid;
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+            if (sender && text) {
+                safeLog({
+                    type: 'message',
+                    data: {
+                        sender: sender.split('@')[0],
+                        text: text
+                    }
+                });
+            }
+        });
     });
   }
 

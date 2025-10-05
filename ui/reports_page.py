@@ -188,7 +188,7 @@ class ReportsPage(QWidget):
 
         # Cria worker para executar o relatório em background
         worker = Worker(db.get_cash_session_history)
-        worker.signals.result.connect(self.on_cash_history_report_ready)
+        worker.signals.finished.connect(self.on_cash_history_report_ready)
         worker.signals.error.connect(self.on_report_error)
         worker.signals.finished.connect(self.on_cash_history_report_finished)
 
@@ -237,7 +237,7 @@ class ReportsPage(QWidget):
     def show_session_details(self, session_id):
         """Busca e exibe o relatório detalhado de uma sessão de caixa."""
         worker = Worker(db.get_cash_session_report, session_id)
-        worker.signals.result.connect(self.on_detail_report_ready)
+        worker.signals.finished.connect(self.on_detail_report_ready)
         worker.signals.error.connect(self.on_report_error)
         from PyQt6.QtCore import QThreadPool
         threadpool = QThreadPool.globalInstance()
@@ -357,7 +357,7 @@ class ReportsPage(QWidget):
 
         # Cria worker para executar o relatório em background
         worker = Worker(db.get_sales_report, start_date, end_date)
-        worker.signals.result.connect(self.on_sales_report_ready)
+        worker.signals.finished.connect(self.on_sales_report_ready)
         worker.signals.error.connect(self.on_report_error)
         worker.signals.finished.connect(self.on_report_finished)
 
@@ -378,7 +378,7 @@ class ReportsPage(QWidget):
 
         # Cria worker para executar o relatório em background
         worker = Worker(db.get_sales_report, start_date, end_date)
-        worker.signals.result.connect(self.on_sales_report_ready)
+        worker.signals.finished.connect(self.on_sales_report_ready)
         worker.signals.error.connect(self.on_report_error)
         worker.signals.finished.connect(self.on_report_finished)
 

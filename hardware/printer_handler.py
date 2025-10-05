@@ -4,6 +4,7 @@ from escpos.exceptions import DeviceNotFoundError
 import serial.tools.list_ports
 import win32print
 import win32api
+import logging
 
 class PrinterHandler:
     """
@@ -68,9 +69,9 @@ class PrinterHandler:
             vendor_id_int = int(vendor_id, 16)
             product_id_int = int(product_id, 16)
 
-            print(f"Impressora USB: Conectando ao dispositivo {vendor_id}/{product_id}")
+            logging.info(f"Impressora USB: Conectando ao dispositivo {vendor_id}/{product_id}")
             self.printer = Usb(vendor_id_int, product_id_int)
-            print("Impressora USB: Conectada com sucesso")
+            logging.info("Impressora USB: Conectada com sucesso")
             return True, "Impressora USB conectada"
 
         except ValueError as e:
@@ -95,9 +96,9 @@ class PrinterHandler:
             return False, self.error_message
 
         try:
-            print(f"Impressora Serial: Conectando à porta {port} ({baudrate} baud)")
+            logging.info(f"Impressora Serial: Conectando à porta {port} ({baudrate} baud)")
             self.printer = Serial(port, baudrate=baudrate)
-            print("Impressora Serial: Conectada com sucesso")
+            logging.info("Impressora Serial: Conectada com sucesso")
             return True, f"Impressora Serial conectada na porta {port}"
 
         except Exception as e:
@@ -114,9 +115,9 @@ class PrinterHandler:
             return False, self.error_message
 
         try:
-            print(f"Impressora de Rede: Conectando a {host}:{port}")
+            logging.info(f"Impressora de Rede: Conectando a {host}:{port}")
             self.printer = Network(host, port=port)
-            print("Impressora de Rede: Conectada com sucesso")
+            logging.info("Impressora de Rede: Conectada com sucesso")
             return True, f"Impressora de rede conectada em {host}:{port}"
 
         except Exception as e:
@@ -128,7 +129,7 @@ class PrinterHandler:
         try:
             # Obtém a impressora padrão
             printer_name = win32print.GetDefaultPrinter()
-            print(f"Impressora do Sistema: Usando impressora padrão '{printer_name}'")
+            logging.info(f"Impressora do Sistema: Usando impressora padrão '{printer_name}'")
             return True, f"Impressora do sistema configurada: {printer_name}"
 
         except Exception as e:
@@ -142,14 +143,14 @@ class PrinterHandler:
         Args:
             printer_config (dict): Nova configuração da impressora
         """
-        print(f"Impressora: Reconfigurando para tipo '{printer_config.get('type', 'disabled')}'")
+        logging.info(f"Impressora: Reconfigurando para tipo '{printer_config.get('type', 'disabled')}'")
 
         # Fecha conexão anterior
         if self.printer and hasattr(self.printer, 'close'):
             try:
                 self.printer.close()
             except Exception as e:
-                print(f"Impressora: Erro ao fechar conexão anterior: {e}")
+                logging.error(f"Impressora: Erro ao fechar conexão anterior: {e}")
 
         self.printer_config = printer_config
         self.printer = None
@@ -188,7 +189,7 @@ class PrinterHandler:
 
         except Exception as e:
             error_message = f"Erro ao imprimir: {e}"
-            print(f"Impressora: {error_message}")
+            logging.error(f"Impressora: {error_message}", exc_info=True)
             return False, error_message
 
     def _print_thermal_printer(self, store_info, sale_details):
@@ -351,7 +352,7 @@ class PrinterHandler:
         receipt.append("OBRIGADO PELA PREFERÊNCIA!".center(40))
         receipt.append("--- FIM DO RECIBO SIMULADO ---")
 
-        print("\n".join(receipt))
+        logging.info("\n".join(receipt))
 
     def test_print(self):
         """
@@ -410,5 +411,5 @@ class PrinterHandler:
             ports = serial.tools.list_ports.comports()
             return [port.device for port in ports]
         except Exception as e:
-            print(f"Erro ao listar portas COM: {e}")
+            logging.error(f"Erro ao listar portas COM: {e}", exc_info=True)
             return []

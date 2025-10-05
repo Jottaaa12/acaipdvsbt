@@ -6,6 +6,7 @@ from PyQt6.QtCore import QDate, Qt, QThreadPool
 import database as db
 from datetime import datetime, timedelta
 from .worker import Worker
+import logging
 
 class SalesHistoryPage(QWidget):
     def __init__(self, parent=None):
@@ -122,8 +123,8 @@ class SalesHistoryPage(QWidget):
         self.sale_details_table.setRowCount(0)
         self.show_message_in_table(self.sales_table, "Carregando histórico...")
         worker = Worker(db.get_sales_with_payment_methods_by_period, start_date, end_date)
-        worker.signals.result.connect(self.populate_sales_table)
-        worker.signals.error.connect(lambda err: print(f"Erro ao carregar histórico de vendas: {err}"))
+        worker.signals.finished.connect(self.populate_sales_table)
+        worker.signals.error.connect(lambda err: logging.error(f"Erro ao carregar histórico de vendas: {err}"))
         self.threadpool.start(worker)
 
     def populate_sales_table(self, sales):
@@ -154,15 +155,25 @@ class SalesHistoryPage(QWidget):
         self.sale_details_table.setRowCount(0)
         if not selected_rows:
             return
-            
+
         selected_row = selected_rows[0].row()
-        sale_id = int(self.sales_table.item(selected_row, 0).text())
-        
-        self.show_message_in_table(self.sale_details_table, "Carregando itens...")
-        worker = Worker(db.get_items_for_sale, sale_id)
-        worker.signals.result.connect(self.populate_items_table)
-        worker.signals.error.connect(lambda err: print(f"Erro ao buscar itens da venda: {err}"))
-        self.threadpool.start(worker)
+        item = self.sales_table.item(selected_row, 0)
+
+        # Verificar se o item é uma mensagem ou um ID válido
+        if not item or not item.text().strip().isdigit():
+            return
+
+        try:
+            sale_id = int(item.text().strip())
+
+            self.show_message_in_table(self.sale_details_table, "Carregando itens...")
+            worker = Worker(db.get_items_for_sale, sale_id)
+            worker.signals.finished.connect(self.populate_items_table)
+            worker.signals.error.connect(lambda err: logging.error(f"Erro ao buscar itens da venda: {err}"))
+            self.threadpool.start(worker)
+        except ValueError:
+            # Se não conseguir converter para int, ignorar
+            return
 
     def populate_items_table(self, items):
         self.sale_details_table.setRowCount(0)

@@ -5,6 +5,9 @@ import shutil
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from utils import to_cents, to_reais, get_data_path
+import logging
+import functools
+from typing import Optional, Dict, Any
 
 DB_FILE = get_data_path('pdv.db')
 
@@ -169,13 +172,27 @@ def create_tables():
         )
     ''')
 
-    # --- Criação de Índices ---
+    # --- Criação de Índices Otimizados ---
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode);')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales (sale_date);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_date_user ON sales (sale_date, user_id);')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items (sale_id);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_product_id ON sale_items (product_id);')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_group_id ON products (group_id);')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_id ON sales (user_id);')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_cash_session_id ON sales (cash_session_id);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_training_mode ON sales (training_mode);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_cash_sessions_status ON cash_sessions (status);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_cash_sessions_user_date ON cash_sessions (user_id, open_time);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log (timestamp);')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_audit_log_user_action ON audit_log (user_id, action);')
+
+    # Criar índice adicional para produtos ativos se a coluna existir
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_active ON products (active, stock);')
+    except sqlite3.OperationalError:
+        # Coluna 'active' não existe, ignorar índice
+        pass
 
     # Criar usuário administrador padrão se não existir
     cursor.execute('SELECT COUNT(*) FROM users WHERE role = "gerente"')
@@ -185,7 +202,7 @@ def create_tables():
             INSERT INTO users (username, password_hash, role)
             VALUES (?, ?, ?)
         ''', ('admin', admin_password, 'gerente'))
-        print("Usuário administrador criado: admin / admin123")
+        logging.info("Usuário administrador criado: admin / admin123")
 
     # Criar tabela de configurações se não existir
     cursor.execute('''
@@ -201,7 +218,9 @@ def create_tables():
     # Inserir configurações padrão do WhatsApp se não existirem
     whatsapp_configs = [
         ('whatsapp_notifications_enabled', 'false'),
-        ('whatsapp_notification_number', '')
+        ('whatsapp_notification_number', ''),
+        ('whatsapp_manager_numbers', ''),
+        ('whatsapp_notifications_globally_enabled', 'true')
     ]
 
     for key, value in whatsapp_configs:
@@ -217,7 +236,7 @@ def create_tables():
 
     conn.commit()
     conn.close()
-    print("Banco de dados e tabelas criados com sucesso.")
+    logging.info("Banco de dados e tabelas criados com sucesso.")
 
 def add_product(description, barcode, price, stock, sale_type, group_id):
     """Adiciona um novo produto ao banco de dados."""
@@ -259,7 +278,13 @@ def get_all_products():
         products.append(product)
     return products
 
+@functools.lru_cache(maxsize=100)
+def get_product_by_barcode_cached(barcode: str):
+    """Busca produto por código de barras com cache LRU."""
+    return get_product_by_barcode(barcode)
+
 def get_product_by_barcode(barcode):
+    """Busca produto por código de barras."""
     conn = get_db_connection()
     row = conn.execute('SELECT * FROM products WHERE barcode = ?', (barcode,)).fetchone()
     conn.close()
@@ -269,6 +294,21 @@ def get_product_by_barcode(barcode):
             product['price'] = to_reais(product['price'])
         return product
     return None
+
+def clear_product_cache():
+    """Limpa cache de produtos."""
+    get_product_by_barcode_cached.cache_clear()
+    logging.info("Cache de produtos limpo")
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Retorna estatísticas do cache."""
+    cache_info = get_product_by_barcode_cached.cache_info()
+    return {
+        'cache_hits': cache_info.hits,
+        'cache_misses': cache_info.misses,
+        'cache_size': cache_info.currsize,
+        'max_size': cache_info.maxsize
+    }
 
 def update_product(product_id, description, barcode, price, stock, sale_type, group_id):
     """Atualiza os dados de um produto existente."""
@@ -352,7 +392,7 @@ def register_sale(total_amount, payment_method, items):
                 cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (item['quantity'], item['id']))
         conn.commit()
     except sqlite3.Error as e:
-        print(f"Erro ao registrar a venda: {e}")
+        logging.error(f"Erro ao registrar a venda: {e}", exc_info=True)
         conn.rollback()
     finally:
         conn.close()
@@ -420,10 +460,12 @@ def get_sales_with_payment_methods_by_period(start_date, end_date):
     end_datetime = f'{end_date} 23:59:59'
 
     query = '''
-        SELECT s.*, GROUP_CONCAT(pm.name, ', ') as payment_methods_str, u.username
+        SELECT 
+            s.id, s.sale_date, s.total_amount, s.user_id, s.cash_session_id, s.training_mode,
+            u.username,
+            GROUP_CONCAT(sp.payment_method, ', ') as payment_methods_str
         FROM sales s
         LEFT JOIN sale_payments sp ON s.id = sp.sale_id
-        LEFT JOIN payment_methods pm ON sp.payment_method = pm.name
         LEFT JOIN users u ON s.user_id = u.id
         WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
         GROUP BY s.id
@@ -559,15 +601,14 @@ def delete_payment_method(method_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Verifica se a forma de pagamento está sendo usada em alguma venda.
-        # Esta verificação é importante para manter a integridade dos relatórios.
+        # Verifica se a forma de pagamento está sendo usada em alguma venda na nova tabela sale_payments.
         usage_count = cursor.execute(
-            'SELECT COUNT(*) FROM sales WHERE payment_method = (SELECT name FROM payment_methods WHERE id = ?)',
+            'SELECT COUNT(*) FROM sale_payments WHERE payment_method = (SELECT name FROM payment_methods WHERE id = ?)',
             (method_id,)
         ).fetchone()[0]
 
         if usage_count > 0:
-            return False, f"Esta forma de pagamento não pode ser deletada pois está associada a {usage_count} venda(s)."
+            return False, f"Esta forma de pagamento não pode ser deletada pois está associada a {usage_count} pagamento(s)."
 
         cursor.execute('DELETE FROM payment_methods WHERE id = ?', (method_id,))
         conn.commit()
@@ -581,6 +622,37 @@ def delete_payment_method(method_id):
         return False, f"Erro de banco de dados ao deletar forma de pagamento: {e}"
     finally:
         conn.close()
+
+
+def delete_historical_data(user_id):
+    """
+    Exclui permanentemente todos os dados históricos de vendas, caixa e auditoria.
+    Esta operação é IRREVERSÍVEL.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        conn.execute('BEGIN TRANSACTION')
+
+        # Ordem de exclusão é importante devido a chaves estrangeiras
+        cursor.execute('DELETE FROM sale_items')
+        cursor.execute('DELETE FROM sale_payments')
+        cursor.execute('DELETE FROM sales')
+        cursor.execute('DELETE FROM cash_movements')
+        cursor.execute('DELETE FROM cash_counts')
+        cursor.execute('DELETE FROM cash_sessions')
+        cursor.execute('DELETE FROM audit_log')
+
+        conn.commit()
+        log_audit(user_id, 'DELETE_HISTORICAL_DATA', 'ALL_HISTORICAL', None, new_values="Todos os dados históricos foram excluídos.")
+        return True, "Dados históricos excluídos com sucesso."
+    except sqlite3.Error as e:
+        conn.rollback()
+        logging.error(f"Erro ao excluir dados históricos: {e}", exc_info=True)
+        return False, f"Erro de banco de dados ao excluir dados históricos: {e}"
+    finally:
+        conn.close()
+
 
 # --- Funções de Usuários ---
 
@@ -830,7 +902,7 @@ def close_cash_session(session_id, user_id, final_amount, cash_counts, observati
             'difference': to_reais(difference_cents)
         }
     except sqlite3.Error as e:
-        print(f"Erro ao fechar o caixa: {e}")
+        logging.error(f"Erro ao fechar o caixa: {e}", exc_info=True)
         conn.rollback()
         return False, f"Erro de banco de dados ao fechar o caixa: {e}"
     finally:
@@ -1398,6 +1470,22 @@ def get_stock_report():
         'low_stock_items': low_stock_converted
     }
 
+def get_authorized_managers() -> list[str]:
+    """Busca e retorna a lista de números de telefone de gerentes autorizados."""
+    numbers_str = load_setting('whatsapp_manager_numbers', '')
+    if not numbers_str:
+        return []
+    # Retorna uma lista de números limpos, sem espaços ou caracteres extras
+    return [num.strip() for num in numbers_str.split(',') if num.strip()]
+
+def set_global_notification_status(enabled: bool):
+    """Ativa ou desativa globalmente o envio de notificações."""
+    save_setting('whatsapp_notifications_globally_enabled', 'true' if enabled else 'false')
+
+def are_notifications_globally_enabled() -> bool:
+    """Verifica se as notificações estão globalmente ativadas."""
+    return load_setting('whatsapp_notifications_globally_enabled', 'true') == 'true'
+
 def get_cash_session_history(start_date=None, end_date=None, operator_id=None, limit=100):
     """Retorna um histórico de sessões de caixa fechadas com filtros opcionais."""
     conn = get_db_connection()
@@ -1412,9 +1500,9 @@ def get_cash_session_history(start_date=None, end_date=None, operator_id=None, l
             cs.expected_amount,
             cs.final_amount,
             cs.difference,
-            u.username as user_opened
+            u.username
         FROM cash_sessions cs
-        JOIN users u ON cs.user_id = u.id
+        LEFT JOIN users u ON cs.user_id = u.id
         WHERE cs.status = 'closed'
     '''
     
@@ -1461,7 +1549,7 @@ def save_setting(key, value):
         conn.commit()
         return True
     except sqlite3.Error as e:
-        print(f"Erro ao salvar configuração {key}: {e}")
+        logging.error(f"Erro ao salvar configuração {key}: {e}", exc_info=True)
         return False
     finally:
         conn.close()
@@ -1477,7 +1565,7 @@ def load_setting(key, default_value=None):
             return row['value']
         return default_value
     except sqlite3.Error as e:
-        print(f"Erro ao carregar configuração {key}: {e}")
+        logging.error(f"Erro ao carregar configuração {key}: {e}", exc_info=True)
         return default_value
     finally:
         conn.close()

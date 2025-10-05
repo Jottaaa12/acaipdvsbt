@@ -17,6 +17,7 @@ from ui.cash_closing_dialog import CashClosingDialog
 from integrations.whatsapp_manager import WhatsAppManager
 from PyQt6.QtCore import QThreadPool
 from .worker import Worker
+import logging
 
 class CashPage(QWidget):
     '''Página refatorada para uma gestão de caixa moderna e completa.'''
@@ -350,10 +351,10 @@ class CashPage(QWidget):
         operator_id = self.history_operator_filter.currentData()
 
         worker = Worker(db.get_cash_session_history, start_date, end_date, operator_id)
-        worker.signals.result.connect(self.populate_history_table)
+        worker.signals.finished.connect(self.populate_history_table)
         worker.signals.finished.connect(lambda: self.filter_button.setEnabled(True))
         worker.signals.finished.connect(lambda: self.filter_button.setText(self.original_filter_text))
-        worker.signals.error.connect(lambda err: print(f"Erro ao carregar histórico de sessões: {err}"))
+        worker.signals.error.connect(lambda err: logging.error(f"Erro ao carregar histórico de sessões: {err}"))
         worker.signals.error.connect(lambda err: self.filter_button.setEnabled(True))
         worker.signals.error.connect(lambda err: self.filter_button.setText(self.original_filter_text))
         self.threadpool.start(worker)
@@ -368,8 +369,9 @@ class CashPage(QWidget):
             elif diff > 0:
                 diff_item.setForeground(QColor(ModernTheme.SUCCESS))
 
+            username = session['username'] if session['username'] else "[Usuário Removido]"
             self.history_table.setItem(i, 0, QTableWidgetItem(str(session['id'])))
-            self.history_table.setItem(i, 1, QTableWidgetItem(session['user_opened']))
+            self.history_table.setItem(i, 1, QTableWidgetItem(username))
             self.history_table.setItem(i, 2, QTableWidgetItem(session['close_time'].strftime('%d/%m/%Y %H:%M')))
             self.history_table.setItem(i, 3, diff_item)
 
@@ -452,7 +454,7 @@ class CashPage(QWidget):
                     {'id': 'nova_sessao'}
                 )
             except Exception as e:
-                print(f"Aviso: Erro ao enviar notificação de abertura de caixa: {e}")
+                logging.warning(f"Erro ao enviar notificação de abertura de caixa: {e}")
         else:
             QMessageBox.warning(self, "Erro", message)
         self.update_buttons_state(is_open=success, is_busy=False)
@@ -500,12 +502,12 @@ class CashPage(QWidget):
                     }
 
                     sales_notifier.notify_cash_closing(
-                        session_data['user_opened'],  # Nome do usuário que abriu
+                        session_data['username'],  # Nome do usuário que abriu
                         float(session_data['initial_amount']),
                         summary_dict
                     )
             except Exception as e:
-                print(f"Aviso: Erro ao enviar notificação de fechamento de caixa: {e}")
+                logging.warning(f"Erro ao enviar notificação de fechamento de caixa: {e}")
         else:
             QMessageBox.critical(self, "Erro ao Fechar o Caixa", message)
 
@@ -568,13 +570,13 @@ class CashPage(QWidget):
             # Obter número do telefone
             phone_number = db.load_setting('whatsapp_notification_number', '')
             if not phone_number:
-                print(f"[{datetime.now()}] WhatsApp: Notificações habilitadas mas número não configurado")
+                logging.warning("WhatsApp: Notificações habilitadas mas número não configurado")
                 return
 
             # Obter dados da sessão atual
             current_session = db.get_current_cash_session()
             if not current_session:
-                print(f"[{datetime.now()}] WhatsApp: Sessão de caixa não encontrada")
+                logging.warning("WhatsApp: Sessão de caixa não encontrada")
                 return
 
             # Criar mensagem baseada na ação
@@ -592,7 +594,7 @@ Caixa aberto com sucesso no sistema PDV."""
                 # Obter relatório da sessão para dados de fechamento
                 report = db.get_cash_session_report(current_session['id'])
                 if not report or not report['session']:
-                    print(f"[{datetime.now()}] WhatsApp: Relatório da sessão não encontrado")
+                    logging.warning("WhatsApp: Relatório da sessão não encontrado")
                     return
 
                 session_data = report['session']
@@ -638,7 +640,7 @@ Caixa aberto com sucesso no sistema PDV."""
                 message += f"{sales_breakdown}\n🆔 Sessão: #{session_data['id']}\n\nCaixa fechado com sucesso no sistema PDV."
 
             else:
-                print(f"[{datetime.now()}] WhatsApp: Ação desconhecida: {action}")
+                logging.warning(f"WhatsApp: Ação desconhecida: {action}")
                 return
 
             # Enviar notificação usando o novo WhatsAppManager
@@ -646,12 +648,12 @@ Caixa aberto com sucesso no sistema PDV."""
             success = manager.send_message(phone_number, message)
 
             if success:
-                print(f"[{datetime.now()}] WhatsApp: Notificação de {action} enviada para {phone_number}")
+                logging.info(f"WhatsApp: Notificação de {action} enviada para {phone_number}")
             else:
-                print(f"[{datetime.now()}] WhatsApp: Falha ao enviar notificação de {action} para {phone_number}")
+                logging.warning(f"WhatsApp: Falha ao enviar notificação de {action} para {phone_number}")
 
         except Exception as e:
-            print(f"[{datetime.now()}] WhatsApp: Erro ao enviar notificação - {str(e)}")
+            logging.error(f"WhatsApp: Erro ao enviar notificação - {str(e)}", exc_info=True)
 
     def closeEvent(self, event):
         self.update_timer.stop()

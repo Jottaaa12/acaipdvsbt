@@ -13,6 +13,9 @@ import sqlite3
 import re
 from decimal import Decimal
 from utils import get_data_path
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 DB_FILE = get_data_path('pdv.db')
 
@@ -25,7 +28,7 @@ def get_db_connection():
 
 def migrate_database():
     """Executa a migração do banco de dados."""
-    print("Iniciando migração do banco de dados...")
+    logging.info("Iniciando migração do banco de dados...")
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -37,13 +40,13 @@ def migrate_database():
         has_payment_method_column = any(col['name'] == 'payment_method' for col in columns)
 
         if not has_payment_method_column:
-            print("✅ Migração já foi executada anteriormente. Nenhuma ação necessária.")
+            logging.info("✅ Migração já foi executada anteriormente. Nenhuma ação necessária.")
             return True
 
-        print("📋 Iniciando processo de migração...")
+        logging.info("📋 Iniciando processo de migração...")
 
         # 1. Criar nova tabela sale_payments
-        print("   Criando tabela sale_payments...")
+        logging.info("   Criando tabela sale_payments...")
         cursor.execute('''
             CREATE TABLE sale_payments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +58,7 @@ def migrate_database():
         ''')
 
         # 2. Migrar dados existentes
-        print("   Migrando dados existentes...")
+        logging.info("   Migrando dados existentes...")
 
         # Buscar todas as vendas que têm payment_method
         cursor.execute('''
@@ -82,27 +85,59 @@ def migrate_database():
                     VALUES (?, ?, ?)
                 ''', (sale_id, payment['method'], payment_amount_cents))
 
-        # 3. Remover coluna payment_method da tabela sales
-        print("   Removendo coluna payment_method da tabela sales...")
-        cursor.execute('ALTER TABLE sales DROP COLUMN payment_method')
+        # 3. Reconstruir a tabela sales sem a coluna payment_method (método seguro)
+        logging.info("   Reconstruindo a tabela sales sem a coluna payment_method...")
+
+        # 3.1. Renomear a tabela sales original
+        cursor.execute('ALTER TABLE sales RENAME TO sales_old')
+
+        # 3.2. Criar a nova tabela sales com o esquema atualizado
+        cursor.execute('''
+            CREATE TABLE sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_amount INTEGER NOT NULL,
+                user_id INTEGER,
+                cash_session_id INTEGER,
+                training_mode BOOLEAN DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (cash_session_id) REFERENCES cash_sessions (id)
+            )
+        ''')
+
+        # 3.3. Copiar os dados da tabela antiga para a nova
+        # Obter a lista de colunas da tabela antiga para garantir a compatibilidade
+        cursor.execute("PRAGMA table_info(sales_old)")
+        old_columns = [col['name'] for col in cursor.fetchall()]
+        columns_to_copy = [col for col in old_columns if col != 'payment_method']
+        columns_str = ", ".join(columns_to_copy)
+
+        cursor.execute(f'''
+            INSERT INTO sales ({columns_str})
+            SELECT {columns_str}
+            FROM sales_old
+        ''')
+
+        # 3.4. Deletar a tabela antiga
+        cursor.execute('DROP TABLE sales_old')
 
         # 4. Criar índice para a nova tabela
-        print("   Criando índices...")
+        logging.info("   Criando índices...")
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments (sale_id)')
 
         conn.commit()
-        print("✅ Migração concluída com sucesso!")
+        logging.info("✅ Migração concluída com sucesso!")
 
         # Verificar se há dados migrados
         cursor.execute('SELECT COUNT(*) FROM sale_payments')
         migrated_count = cursor.fetchone()[0]
 
-        print(f"📊 {migrated_count} registros de pagamento migrados.")
+        logging.info(f"📊 {migrated_count} registros de pagamento migrados.")
 
         return True
 
     except sqlite3.Error as e:
-        print(f"❌ Erro durante a migração: {e}")
+        logging.error(f"❌ Erro durante a migração: {e}", exc_info=True)
         conn.rollback()
         return False
     finally:
@@ -126,13 +161,13 @@ def parse_payment_string(payment_string, total_amount):
                 amount_decimal = Decimal(amount_str.replace(',', '.'))
                 payments_list.append({'method': method, 'amount': amount_decimal})
             except:
-                print(f"   ⚠️  Erro ao fazer parsing do pagamento: {method}: R$ {amount_str}")
+                logging.warning(f"   ⚠️  Erro ao fazer parsing do pagamento: {method}: R$ {amount_str}")
                 continue
 
         # Verificar se a soma dos pagamentos é igual ao total
         total_payments = sum(p['amount'] for p in payments_list)
         if abs(total_payments - Decimal(str(total_amount)) / 100) > Decimal('0.01'):
-            print(f"   ⚠️  Diferença de valor detectada na venda. Total: {total_amount/100}, Pagamentos: {total_payments}")
+            logging.warning(f"   ⚠️  Diferença de valor detectada na venda. Total: {total_amount/100}, Pagamentos: {total_payments}")
     else:
         # Se não conseguiu extrair, assume que é um único método de pagamento
         payments_list = [{'method': payment_string, 'amount': Decimal(str(total_amount)) / 100}]
@@ -160,16 +195,16 @@ def check_migration_needed():
         conn.close()
 
 if __name__ == '__main__':
-    print("🔧 Verificando necessidade de migração...")
+    logging.info("🔧 Verificando necessidade de migração...")
 
     if check_migration_needed():
-        print("📋 Migração necessária. Executando...")
+        logging.info("📋 Migração necessária. Executando...")
         success = migrate_database()
 
         if success:
-            print("✅ Migração executada com sucesso!")
-            print("🎉 O sistema agora suporta múltiplos pagamentos por venda!")
+            logging.info("✅ Migração executada com sucesso!")
+            logging.info("🎉 O sistema agora suporta múltiplos pagamentos por venda!")
         else:
-            print("❌ Falha na migração. Verifique os logs de erro acima.")
+            logging.error("❌ Falha na migração. Verifique os logs de erro acima.")
     else:
-        print("✅ Nenhuma migração necessária. O banco já está atualizado.")
+        logging.info("✅ Nenhuma migração necessária. O banco já está atualizado.")

@@ -74,6 +74,25 @@ function safeLog(obj) {
             safeLog({ type: 'status', data: connection });
         }
     });
+
+    sock.ev.on('messages.upsert', m => {
+        m.messages.forEach(msg => {
+            if (!msg.message || msg.key.fromMe) {
+                return;
+            }
+            const sender = msg.key.remoteJid;
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+            if (sender && text) {
+                safeLog({
+                    type: 'message',
+                    data: {
+                        sender: sender.split('@')[0],
+                        text: text
+                    }
+                });
+            }
+        });
+    });
   }
 
   startSock();

@@ -3,6 +3,7 @@ import random
 import serial
 import re
 from PyQt6.QtCore import QThread, pyqtSignal, QObject
+import logging
 
 class AbstractScaleWorker(QObject):
     """Classe base abstrata para os workers da balança."""
@@ -16,19 +17,19 @@ class AbstractScaleWorker(QObject):
 class SimulatedScaleWorker(AbstractScaleWorker):
     """Worker que simula a leitura de peso em uma thread separada."""
     def run(self):
-        print("Simulador de Balança: Iniciando thread de simulação.")
+        logging.info("Simulador de Balança: Iniciando thread de simulação.")
         while self.is_running:
             try:
                 weight = round(random.uniform(0.100, 5.000), 3)
                 self.weight_updated.emit(weight)
-                print(f"Simulador de Balança: Peso simulado emitido - {weight:.3f} kg")
+                logging.debug(f"Simulador de Balança: Peso simulado emitido - {weight:.3f} kg")
                 time.sleep(2)  # Emite um novo peso a cada 2 segundos
             except Exception as e:
                 error_message = f"Erro na simulação da balança: {e}"
                 self.error_occurred.emit(error_message)
-                print(error_message)
+                logging.error(error_message, exc_info=True)
                 break
-        print("Simulador de Balança: Thread de simulação finalizada.")
+        logging.info("Simulador de Balança: Thread de simulação finalizada.")
 
 
 class RealScaleWorker(AbstractScaleWorker):
@@ -44,7 +45,7 @@ class RealScaleWorker(AbstractScaleWorker):
         self.buffer = "" # Buffer para dados fragmentados
 
     def run(self):
-        print(f"Balança Real: Iniciando thread de leitura na porta {self.port}.")
+        logging.info(f"Balança Real: Iniciando thread de leitura na porta {self.port}.")
         try:
             self.serial_connection = serial.Serial(
                 port=self.port,
@@ -54,11 +55,11 @@ class RealScaleWorker(AbstractScaleWorker):
                 stopbits=self.stopbits,
                 timeout=1
             )
-            print("Balança Real: Conexão serial estabelecida.")
+            logging.info("Balança Real: Conexão serial estabelecida.")
         except serial.SerialException as e:
             error_message = f"Balança Real: Erro ao abrir a porta serial {self.port}: {e}"
             self.error_occurred.emit(error_message)
-            print(error_message)
+            logging.error(error_message, exc_info=True)
             return
 
         while self.is_running and self.serial_connection.isOpen():
@@ -85,7 +86,7 @@ class RealScaleWorker(AbstractScaleWorker):
             except serial.SerialException as e:
                 error_message = f"Balança Real: Erro de comunicação serial: {e}"
                 self.error_occurred.emit(error_message)
-                print(error_message)
+                logging.error(error_message, exc_info=True)
                 self.is_running = False # Para a thread em caso de erro grave
             except ValueError:
                 # Se a conversão falhar, limpa o buffer para evitar loops de erro
@@ -94,12 +95,12 @@ class RealScaleWorker(AbstractScaleWorker):
             except Exception as e:
                 error_message = f"Balança Real: Erro inesperado na leitura: {e}"
                 self.error_occurred.emit(error_message)
-                print(error_message)
+                logging.error(error_message, exc_info=True)
                 time.sleep(2) # Espera antes de tentar novamente
 
         if self.serial_connection and self.serial_connection.isOpen():
             self.serial_connection.close()
-        print("Balança Real: Thread de leitura finalizada.")
+        logging.info("Balança Real: Thread de leitura finalizada.")
 
 
 class ScaleHandler(QObject):
@@ -124,7 +125,7 @@ class ScaleHandler(QObject):
         self.thread = QThread()
         
         if self.mode == 'production':
-            print("ScaleHandler: Iniciando em Modo de Produção.")
+            logging.info("ScaleHandler: Iniciando em Modo de Produção.")
             self.worker = RealScaleWorker(
                 port=self.config.get('port', 'COM3'),
                 baudrate=self.config.get('baudrate', 9600),
@@ -133,7 +134,7 @@ class ScaleHandler(QObject):
                 stopbits=self.config.get('stopbits', 1)
             )
         else:
-            print("ScaleHandler: Iniciando em Modo de Teste (Simulado).")
+            logging.info("ScaleHandler: Iniciando em Modo de Teste (Simulado).")
             self.worker = SimulatedScaleWorker()
 
         self.worker.moveToThread(self.thread)
@@ -148,16 +149,16 @@ class ScaleHandler(QObject):
 
     def stop(self):
         if self.thread and self.thread.isRunning():
-            print("ScaleHandler: Parando thread existente.")
+            logging.info("ScaleHandler: Parando thread existente.")
             self.worker.stop()
             self.thread.quit()
             self.thread.wait()
-            print("ScaleHandler: Thread parada com sucesso.")
+            logging.info("ScaleHandler: Thread parada com sucesso.")
         self.thread = None
         self.worker = None
 
     def reconfigure(self, mode, **kwargs):
-        print(f"ScaleHandler: Reconfigurando para modo '{mode}'.")
+        logging.info(f"ScaleHandler: Reconfigurando para modo '{mode}'.")
         self.mode = mode
         self.config = kwargs
         self.start() # Reinicia o worker com a nova configuração
@@ -165,5 +166,5 @@ class ScaleHandler(QObject):
     def get_current_weight(self):
         # Este método pode ser removido ou adaptado, já que o peso agora é emitido por sinal.
         # Para um request síncrono, seria mais complexo e contra o padrão de QThread.
-        print("ScaleHandler: A leitura de peso agora é assíncrona via sinal 'weight_updated'.")
+        logging.info("ScaleHandler: A leitura de peso agora é assíncrona via sinal 'weight_updated'.")
         return 0.0

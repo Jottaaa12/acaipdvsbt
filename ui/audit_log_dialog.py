@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 import database as db
 from ui.theme import ModernTheme
+import logging
 
 class AuditLogDialog(QDialog):
     def __init__(self, parent=None):
@@ -70,5 +71,5 @@ class AuditLogDialog(QDialog):
             self.table.resizeColumnsToContents()
 
         except Exception as e:
-            print(f"Erro ao carregar logs de auditoria: {e}")
+            logging.error(f"Erro ao carregar logs de auditoria: {e}", exc_info=True)
             # Aqui poderia mostrar uma QMessageBox de erro

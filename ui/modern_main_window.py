@@ -19,9 +19,11 @@ from ui.user_management_page import UserManagementPage
 from ui.sales_history_page import SalesHistoryPage
 from ui.audit_log_dialog import AuditLogDialog
 from ui.backup_dialog import BackupDialog
+from ui.log_console_dialog import LogConsoleDialog
 from hardware.scale_handler import ScaleHandler
 from hardware.printer_handler import PrinterHandler
 import database as db
+import logging
 
 class ModernSidebar(QFrame):
     """Sidebar moderna retrátil"""
@@ -303,7 +305,7 @@ class ModernDashboard(QWidget):
     def on_scale_error(self, error_message):
         self.scale_status_label.setText(f"⚖️ Balança Desconectada")
         self.scale_status_label.setStyleSheet(f"color: {ModernTheme.ERROR}; font-weight: 500;")
-        print(f"Dashboard: Erro recebido do ScaleHandler: {error_message}")
+        logging.warning(f"Dashboard: Erro recebido do ScaleHandler: {error_message}")
 
     def setup_ui(self):
         """Configura a UI do dashboard com uma área de rolagem."""
@@ -464,7 +466,7 @@ class ModernDashboard(QWidget):
             self.kpi_labels["sales_count"].setText(str(summary['total_sales_count']))
             self.kpi_labels["avg_ticket"].setText(f"R$ {summary['average_ticket']:.2f}")
         except Exception as e:
-            print(f"Erro ao atualizar KPIs: {e}")
+            logging.error(f"Erro ao atualizar KPIs: {e}", exc_info=True)
 
     def update_sales_by_hour_chart(self):
         try:
@@ -478,7 +480,7 @@ class ModernDashboard(QWidget):
             totals = [float(item['total']) for item in sales_data]
             self.bar_graph_item.setOpts(x=hours, height=totals)
         except Exception as e:
-            print(f"Erro ao atualizar gráfico de vendas por hora: {e}")
+            logging.error(f"Erro ao atualizar gráfico de vendas por hora: {e}", exc_info=True)
 
     def update_sales_by_category_chart(self):
         try:
@@ -509,7 +511,7 @@ class ModernDashboard(QWidget):
                 self.sales_by_category_chart.setItem(i, 2, value_cell)
 
         except Exception as e:
-            print(f"Erro ao atualizar gráfico de vendas por categoria: {e}")
+            logging.error(f"Erro ao atualizar gráfico de vendas por categoria: {e}", exc_info=True)
 
     def update_latest_sales_table(self):
         try:
@@ -529,7 +531,7 @@ class ModernDashboard(QWidget):
                 self.latest_sales_table.setItem(i, 1, user_cell)
                 self.latest_sales_table.setItem(i, 2, amount_cell)
         except Exception as e:
-            print(f"Erro ao atualizar tabela de últimas vendas: {e}")
+            logging.error(f"Erro ao atualizar tabela de últimas vendas: {e}", exc_info=True)
 
     def update_peripherals_status(self):
         # Status da Impressora (a balança é atualizada por sinais)
@@ -558,6 +560,7 @@ class ModernDashboard(QWidget):
 
 
 import json
+from utils import get_data_path
 
 class ModernMainWindow(QMainWindow):
     """Janela principal moderna"""
@@ -585,6 +588,8 @@ class ModernMainWindow(QMainWindow):
             self.config.get('printer', {})
         )
         
+        self.log_console_dialog = LogConsoleDialog(self)
+
         self.setup_ui()
         self.apply_theme()
         self.check_cash_session()
@@ -596,7 +601,7 @@ class ModernMainWindow(QMainWindow):
     
     def load_config(self):
         try:
-            with open('config.json', 'r', encoding='utf-8') as f:
+            with open(get_data_path('config.json'), 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             # Retorna uma config padrão em caso de erro
@@ -660,7 +665,7 @@ class ModernMainWindow(QMainWindow):
     
     def reload_hardware_handlers(self):
         """Recarrega os handlers de hardware quando o modo de operação muda."""
-        print("ModernMainWindow: Recebido sinal para recarregar os handlers de hardware.")
+        logging.info("ModernMainWindow: Recebido sinal para recarregar os handlers de hardware.")
         self.config = self.load_config()
         hardware_mode = self.config.get('hardware_mode', 'test')
 
@@ -691,7 +696,7 @@ class ModernMainWindow(QMainWindow):
             if hasattr(self, 'test_mode_banner'):
                 self.test_mode_banner.hide()
 
-        print(f"Handlers de hardware reconfigurados para o modo: {hardware_mode}")
+        logging.info(f"Handlers de hardware reconfigurados para o modo: {hardware_mode}")
 
     def create_pages(self):
         """Cria as páginas do sistema"""
@@ -721,6 +726,7 @@ class ModernMainWindow(QMainWindow):
         )
         self.content_area.addWidget(self.pages["settings"])
         self.pages["settings"].operation_mode_changed.connect(self.reload_hardware_handlers)
+        self.pages["settings"].open_log_console_requested.connect(self.show_log_console)
 
         # Cash
         self.pages["cash"] = CashPage(self.current_user)
@@ -744,6 +750,12 @@ class ModernMainWindow(QMainWindow):
         # Adicionar aqui outras páginas que dependem dos dados de produtos, como relatórios.
         # if "reports" in self.pages:
         #     self.pages["reports"].reload_data()
+
+    def show_log_console(self):
+        """Exibe e traz para a frente a janela do console de logs."""
+        self.log_console_dialog.show()
+        self.log_console_dialog.raise_()
+        self.log_console_dialog.activateWindow()
     
     def change_page(self, page_name):
         """Muda para a página especificada"""

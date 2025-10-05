@@ -6,6 +6,7 @@ import json
 import os
 import re
 from typing import Dict, Any, Optional, List
+import logging
 
 try:
     from utils import get_data_path
@@ -112,7 +113,7 @@ class WhatsAppConfig:
                     user_config = json.load(f)
                     return self._merge_configs(self.DEFAULT_CONFIG, user_config)
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Aviso: Erro ao carregar config WhatsApp: {e}. Usando configurações padrão.")
+                logging.warning(f"Erro ao carregar config WhatsApp: {e}. Usando configurações padrão.")
                 return self.DEFAULT_CONFIG.copy()
         else:
             return self.DEFAULT_CONFIG.copy()
@@ -133,7 +134,7 @@ class WhatsAppConfig:
         try:
             re.compile(self.config['validation']['phone_regex'])
         except re.error:
-            print("Aviso: Regex de telefone inválido. Usando padrão BR.")
+            logging.warning("Regex de telefone inválido. Usando padrão BR.")
             self.config['validation']['phone_regex'] = self.DEFAULT_CONFIG['validation']['phone_regex']
 
         # Garantir limites mínimos/máximos

@@ -6,16 +6,67 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
 from datetime import datetime
+import logging
 
 import json
 from utils import get_data_path
 from ui.theme import ModernTheme, IconTheme
 from ui.group_management_widget import GroupManagementWidget
 from ui.payment_method_management_widget import PaymentMethodManagementWidget
+from ui.data_management_dialog import DataManagementDialog
 from ui.user_management_page import UserManagementPage
 from ui.audit_log_dialog import AuditLogDialog
 from ui.backup_dialog import BackupDialog
 from ui.shortcut_management_widget import ShortcutManagementWidget
+
+
+class QRCodeDialog(QDialog):
+    """Um diálogo modal simples para exibir o QR Code do WhatsApp de forma clara."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Escaneie o QR Code - Conexão WhatsApp")
+        self.setModal(True)
+        self.setMinimumSize(400, 450)
+        self.setStyleSheet(f"background-color: {ModernTheme.WHITE};")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        info_label = QLabel("Abra o WhatsApp no seu celular e escaneie o código abaixo:")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("font-size: 14px;")
+        layout.addWidget(info_label)
+
+        self.qr_label = QLabel("Gerando QR Code...")
+        self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr_label.setFixedSize(350, 350)
+        self.qr_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {ModernTheme.GRAY_LIGHTER};
+                border: 1px solid {ModernTheme.GRAY_LIGHT};
+                border-radius: 8px;
+            }}
+        """)
+        layout.addWidget(self.qr_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.status_label = QLabel("Aguardando leitura...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 12px; color: #6c757d;")
+        layout.addWidget(self.status_label)
+
+    def set_qr_pixmap(self, pixmap):
+        if not pixmap.isNull():
+            scaled_pixmap = pixmap.scaled(350, 350, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.qr_label.setPixmap(scaled_pixmap)
+            self.qr_label.setText("")
+        else:
+            self.qr_label.setText("Falha ao carregar QR Code.")
+            self.status_label.setText("Por favor, tente novamente.")
+
+    def update_status(self, text):
+        self.status_label.setText(text)
 
 
 class SettingsButton(QToolButton):
@@ -59,6 +110,7 @@ class SettingsButton(QToolButton):
 
 class SettingsPage(QWidget):
     operation_mode_changed = pyqtSignal()
+    open_log_console_requested = pyqtSignal()
 
     def __init__(self, scale_handler, printer_handler, current_user, sales_page=None):
         super().__init__()
@@ -78,6 +130,7 @@ class SettingsPage(QWidget):
         self.remove_recipient_button = None
         self.notification_delay_input = None
         self.stock_alerts_checkbox = None
+        self.qr_code_dialog = None # Janela para exibir o QR Code
 
         self.setup_ui()
 
@@ -122,7 +175,9 @@ class SettingsPage(QWidget):
                 ("users", "Usuários", IconTheme.USERS, self.open_user_management),
                 ("audit_log", "Log de Auditoria", IconTheme.REPORTS, self.open_audit_log),
                 ("whatsapp", "Configuração WhatsApp", IconTheme.SALES, self.open_whatsapp_settings),
-                ("backup", "Backup do Sistema", IconTheme.SAVE, self.open_backup_dialog)
+                ("backup", "Backup do Sistema", IconTheme.SAVE, self.open_backup_dialog),
+                ("data_management", "Gerenciamento de Dados", IconTheme.DATABASE, self.open_data_management),
+                ("log_console", "Console de Logs", IconTheme.REPORTS, self.open_log_console_requested.emit)
             ])
 
         row, col = 0, 0
@@ -195,6 +250,35 @@ class SettingsPage(QWidget):
         widget = PaymentMethodManagementWidget()
         self._create_modal_dialog("Gerenciar Formas de Pagamento", widget)
 
+    def open_data_management(self):
+        dialog = DataManagementDialog(self.current_user, self)
+        dialog.data_deleted.connect(self._handle_data_deleted)  # Conecta o sinal
+        dialog.exec()
+
+    def _handle_data_deleted(self):
+        # Opcional: Recarregar dados ou atualizar a UI após a exclusão
+        QMessageBox.information(self, "Sucesso", "Dados históricos foram excluídos. Recomenda-se reiniciar a aplicação.")
+        # Poderíamos forçar um logout ou reiniciar a aplicação aqui, se necessário.
+
+    def _populate_settings_list(self):
+        self.settings_list.clear()
+        self.stacked_widget.clear()
+        self.stacked_widget.addWidget(self.general_settings_page) # Adiciona a página de configurações gerais primeiro
+        self.settings_list.addItem(self._create_list_item("Geral", IconTheme.SETTINGS, self.open_general_settings))
+
+        # Opções para gerentes
+        if self.user['role'] == 'gerente':
+            self.user_management_page = UserManagementPage(self.user)
+            self.stacked_widget.addWidget(self.user_management_page)
+            self.settings_list.addItem(self._create_list_item("Usuários", IconTheme.USERS, self.open_user_management))
+
+            self.payment_method_management_widget = PaymentMethodManagementWidget()
+            self.stacked_widget.addWidget(self.payment_method_management_widget)
+            self.settings_list.addItem(self._create_list_item("Formas de Pagamento", IconTheme.SALES, self.open_payment_method_management))
+
+            # Nova opção para gerenciamento de dados
+            self.settings_list.addItem(self._create_list_item("Gerenciamento de Dados", IconTheme.DATABASE, self.open_data_management))
+
     def open_user_management(self):
         widget = UserManagementPage()
         self._create_modal_dialog("Gerenciar Usuários", widget)
@@ -206,18 +290,18 @@ class SettingsPage(QWidget):
         manager = WhatsAppManager.get_instance()
 
         # Conecta os sinais ANTES de mostrar o diálogo
-        manager.qr_code_ready.connect(self.on_qr_code_path_received)
-        manager.status_updated.connect(self.on_whatsapp_status_updated)
-        manager.error_occurred.connect(self.on_whatsapp_status_updated)
+        manager.qr_code_ready.connect(self._show_qr_code_dialog)
+        manager.status_updated.connect(self._handle_whatsapp_connection_status)
+        manager.error_occurred.connect(self._handle_whatsapp_connection_status)
         manager.log_updated.connect(self.on_whatsapp_log_updated)
 
         self._create_modal_dialog("Configurações do WhatsApp", widget)
 
         # Desconecta os sinais DEPOIS que o diálogo for fechado para evitar erros
         try:
-            manager.qr_code_ready.disconnect(self.on_qr_code_path_received)
-            manager.status_updated.disconnect(self.on_whatsapp_status_updated)
-            manager.error_occurred.disconnect(self.on_whatsapp_status_updated)
+            manager.qr_code_ready.disconnect(self._show_qr_code_dialog)
+            manager.status_updated.disconnect(self._handle_whatsapp_connection_status)
+            manager.error_occurred.disconnect(self._handle_whatsapp_connection_status)
             manager.log_updated.disconnect(self.on_whatsapp_log_updated)
         except TypeError:
             # Ignora o erro que pode ocorrer se os sinais nunca foram conectados
@@ -712,102 +796,25 @@ class SettingsPage(QWidget):
         self.save_config(config)
 
     def create_whatsapp_config_widget(self):
-        """Cria o widget de configuração do WhatsApp com abas para melhor organização."""
+        """Cria o widget de configuração do WhatsApp com um design moderno e funcional."""
         whatsapp_widget = QWidget()
         main_layout = QVBoxLayout(whatsapp_widget)
         main_layout.setSpacing(15)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Título
-        title = QLabel("Configuração do WhatsApp")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 5px;")
-        main_layout.addWidget(title)
-
-        # Campo para número de notificações
-        notification_layout = QHBoxLayout()
-        notification_layout.setSpacing(10)
-        
-        notification_label = QLabel("Nº para Notificações (Gerente):")
-        self.whatsapp_phone_input = QLineEdit(placeholderText="Ex: 5511912345678")
-        self.save_whatsapp_button = QPushButton("Salvar")
-        self.save_whatsapp_button.clicked.connect(self.save_whatsapp_config)
-
-        notification_layout.addWidget(notification_label)
-        notification_layout.addWidget(self.whatsapp_phone_input, 1)
-        notification_layout.addWidget(self.save_whatsapp_button)
-        main_layout.addLayout(notification_layout)
-
-        # Status da conexão
-        self.whatsapp_status_label = QLabel("⏳ Aguardando configuração...")
-        self.whatsapp_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.whatsapp_status_label.setStyleSheet("""
-            QLabel {
-                padding: 15px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 13px;
-                background-color: #fff3cd;
-                color: #856404;
-                border: 1px solid #ffeaa7;
-            }
-        """)
-        main_layout.addWidget(self.whatsapp_status_label)
-
         # Abas
         tab_widget = QTabWidget()
         main_layout.addWidget(tab_widget)
 
-        # Aba 1: Conexão
-        connection_tab = QWidget()
-        connection_layout = QVBoxLayout(connection_tab)
-        connection_layout.setSpacing(15)
-
-        # Botões de ação
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(15)
-
-        self.check_connection_button = QPushButton("🔍 Verificar")
-        self.check_connection_button.setMinimumHeight(40)
-        self.check_connection_button.clicked.connect(self.check_whatsapp_connection)
-
-        self.qr_code_button = QPushButton("📱 Conectar")
-        self.qr_code_button.setMinimumHeight(40)
-        self.qr_code_button.clicked.connect(self.generate_qr_code)
-
-        self.disconnect_button = QPushButton("🔌 Desconectar")
-        self.disconnect_button.setMinimumHeight(40)
-        self.disconnect_button.clicked.connect(self.disconnect_whatsapp)
-
-        self.send_test_button = QPushButton("✉️ Enviar Teste")
-        self.send_test_button.setMinimumHeight(40)
-
-        self.send_test_button.clicked.connect(self.send_test_whatsapp_message)
-
-        buttons_layout.addWidget(self.check_connection_button)
-        buttons_layout.addWidget(self.qr_code_button)
-        buttons_layout.addWidget(self.disconnect_button)
-        buttons_layout.addWidget(self.send_test_button)
-        buttons_layout.addStretch()
-        connection_layout.addLayout(buttons_layout)
-
-        # Área para exibir QR Code
-        qr_frame = QFrame()
-        qr_frame.setFrameShape(QFrame.Shape.Box)
-        qr_frame.setStyleSheet("border: 2px dashed #dee2e6; border-radius: 8px; background-color: #f8f9fa;")
-        qr_layout = QVBoxLayout(qr_frame)
-        self.qr_code_label = QLabel("Clique em 'Conectar' para gerar o QR Code")
-        self.qr_code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.qr_code_label.setMinimumHeight(250)
-        qr_layout.addWidget(self.qr_code_label)
-        connection_layout.addWidget(qr_frame)
-
+        # Aba 1: Conexão (totalmente redesenhada)
+        connection_tab = self._create_whatsapp_connection_tab()
         tab_widget.addTab(connection_tab, "Conexão")
 
-        # Aba 2: Notificações
+        # Aba 2: Notificações (reutilizada)
         notifications_tab = self.create_notifications_tab()
         tab_widget.addTab(notifications_tab, "Notificações")
 
-        # Aba 3: Instruções
+        # Aba 3: Instruções (reutilizada)
         instructions_tab = QWidget()
         instructions_layout = QVBoxLayout(instructions_tab)
         instructions = QLabel(
@@ -815,7 +822,7 @@ class SettingsPage(QWidget):
             "1. Clique em <b>Conectar</b> para gerar o QR Code.<br>"
             "2. Abra o WhatsApp no seu celular.<br>"
             "3. Toque no ícone de menu (⋮) → 'Aparelhos conectados' → 'Conectar um aparelho'.<br>"
-            "4. Escaneie o QR Code mostrado na aba 'Conexão'.<br>"
+            "4. Escaneie o QR Code mostrado nesta tela.<br>"
             "5. Aguarde a confirmação de conexão estabelecida.<br><br>"
             "<b>Dica:</b> Após conectar, a sessão será salva. Você não precisará ler o QR Code novamente, a menos que clique em <b>Desconectar</b>."
         )
@@ -827,182 +834,182 @@ class SettingsPage(QWidget):
 
         # Carregar dados e verificar status inicial
         self.load_whatsapp_config_to_ui()
-        self.update_whatsapp_status()
+        
+        from integrations.whatsapp_manager import WhatsAppManager
+        manager = WhatsAppManager.get_instance()
+        self._update_whatsapp_ui_state('connected' if manager.is_ready else 'disconnected')
 
         return whatsapp_widget
 
-    def generate_qr_code(self):
-        """Gera QR code para conexão do WhatsApp."""
-        from PyQt6.QtGui import QPixmap
+    def _create_whatsapp_connection_tab(self):
+        """Cria a aba de conexão com design renovado e QR Code em janela separada."""
+        connection_tab = QWidget()
+        layout = QVBoxLayout(connection_tab)
+        layout.setSpacing(20)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # 1. Seção de Status
+        status_group = QGroupBox("Status da Conexão")
+        status_layout = QHBoxLayout(status_group)
+        status_layout.setSpacing(10)
+        
+        self.whatsapp_status_indicator = QLabel()
+        self.whatsapp_status_indicator.setFixedSize(20, 20)
+        
+        self.whatsapp_status_text = QLabel("Verificando...")
+        self.whatsapp_status_text.setStyleSheet("font-size: 14px; font-weight: bold;")
+        
+        status_layout.addWidget(self.whatsapp_status_indicator)
+        status_layout.addWidget(self.whatsapp_status_text)
+        status_layout.addStretch()
+        layout.addWidget(status_group)
+
+        # 2. Seção de Ações e Testes
+        actions_group = QGroupBox("Ações e Testes")
+        actions_layout = QVBoxLayout(actions_group)
+        actions_layout.setSpacing(15)
+
+        # Linha 1: Botões de Ação
+        buttons_layout = QHBoxLayout()
+        self.whatsapp_connect_button = QPushButton("Conectar")
+        self.whatsapp_connect_button.setMinimumHeight(40)
+        self.whatsapp_connect_button.clicked.connect(self._toggle_whatsapp_connection)
+        
+        self.send_test_button = QPushButton("Enviar Mensagem de Teste")
+        self.send_test_button.setMinimumHeight(40)
+        self.send_test_button.clicked.connect(self.send_test_whatsapp_message)
+        
+        buttons_layout.addWidget(self.whatsapp_connect_button)
+        buttons_layout.addWidget(self.send_test_button)
+        buttons_layout.addStretch()
+        actions_layout.addLayout(buttons_layout)
+
+        # Linha 2: Campo para número de teste
+        test_number_widget = QWidget()
+        test_number_layout = QHBoxLayout(test_number_widget)
+        test_number_layout.setContentsMargins(0,0,0,0)
+        test_number_label = QLabel("Nº para Notificações (Gerente):")
+        self.whatsapp_phone_input = QLineEdit(placeholderText="Ex: 5511912345678")
+        self.save_whatsapp_button = QPushButton("Salvar")
+        self.save_whatsapp_button.clicked.connect(self.save_whatsapp_config)
+        test_number_layout.addWidget(test_number_label)
+        test_number_layout.addWidget(self.whatsapp_phone_input, 1)
+        test_number_layout.addWidget(self.save_whatsapp_button)
+        actions_layout.addWidget(test_number_widget)
+        
+        layout.addWidget(actions_group)
+
+        # 3. Seção de QR Code (Informativa)
+        qr_info_group = QGroupBox("QR Code")
+        qr_info_layout = QVBoxLayout(qr_info_group)
+        qr_info_label = QLabel("Ao clicar em 'Conectar', o QR Code será exibido em uma nova janela para facilitar a leitura.")
+        qr_info_label.setWordWrap(True)
+        qr_info_label.setStyleSheet("font-size: 13px; color: #6c757d;")
+        qr_info_layout.addWidget(qr_info_label)
+        layout.addWidget(qr_info_group)
+        
+        layout.addStretch()
+        
+        return connection_tab
+
+    def _toggle_whatsapp_connection(self):
         from integrations.whatsapp_manager import WhatsAppManager
-
-        try:
-            self.qr_code_button.setText("Conectando...")
-            self.qr_code_button.setEnabled(False)
-            self.check_connection_button.setEnabled(False)
-
-            print(f"[{datetime.now()}] Settings: Iniciando conexão do WhatsApp...")
-            manager = WhatsAppManager.get_instance()
-
-            # Iniciar conexão
+        manager = WhatsAppManager.get_instance()
+        
+        if manager.is_ready:
+            reply = QMessageBox.question(self, "Desconectar WhatsApp",
+                                         "Tem certeza que deseja desconectar a sessão atual? Será necessário escanear um novo QR Code para reconectar.",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self._update_whatsapp_ui_state('pending', "Desconectando...")
+                manager.disconnect()
+                self._update_whatsapp_ui_state('disconnected')
+                QMessageBox.information(self, "WhatsApp", "Desconectado com sucesso.")
+        else:
+            self._update_whatsapp_ui_state('pending', "Iniciando conexão...")
             manager.connect()
 
-            self.whatsapp_status_label.setText("🔄 Iniciando conexão com WhatsApp...")
-            self.whatsapp_status_label.setStyleSheet("""                QLabel {{
-                    padding: 15px;
-                    border-radius: 8px;
-                    font-weight: bold;
-                    font-size: 13px;
-                    text-align: center;
-                    background-color: #fff3cd;
-                    color: #856404;
-                    border: 1px solid #ffeaa7;
-                }}
-            """)
+    def _update_whatsapp_ui_state(self, status, message=""):
+        style_indicator_red = "background-color: #dc3545; border-radius: 10px;"
+        style_indicator_green = "background-color: #28a745; border-radius: 10px;"
+        style_indicator_yellow = "background-color: #ffc107; border-radius: 10px;"
 
-        except Exception as e:
-            print(f"[{datetime.now()}] Settings: Erro ao iniciar conexão - {str(e)}")
-            import traceback
-            print(f"[{datetime.now()}] Settings: Traceback - {traceback.format_exc()}")
+        if status == 'disconnected':
+            self.whatsapp_status_indicator.setStyleSheet(style_indicator_red)
+            self.whatsapp_status_text.setText(message or "Desconectado")
+            self.whatsapp_connect_button.setText("📱 Conectar")
+            self.whatsapp_connect_button.setEnabled(True)
+            self.send_test_button.setEnabled(False)
+            # O QR Code agora é gerenciado por um diálogo separado.
+        
+        elif status == 'connected':
+            self.whatsapp_status_indicator.setStyleSheet(style_indicator_green)
+            self.whatsapp_status_text.setText(message or "Conectado")
+            self.whatsapp_connect_button.setText("🔌 Desconectar")
+            self.whatsapp_connect_button.setEnabled(True)
+            self.send_test_button.setEnabled(True)
+            # O QR Code agora é gerenciado por um diálogo separado.
 
-            self.whatsapp_status_label.setText("❌ Erro ao Iniciar Conexão")
-            self.whatsapp_status_label.setStyleSheet("""                QLabel {{
-                    padding: 15px;
-                    border-radius: 8px;
-                    font-weight: bold;
-                    font-size: 13px;
-                    text-align: center;
-                    background-color: #f8d7da;
-                    color: #721c24;
-                    border: 1px solid #f5c6cb;
-                }}
-            """)
-            QMessageBox.critical(self, "Erro", f"Erro ao iniciar conexão com WhatsApp:\n{str(e)}")
-        finally:
-            self.qr_code_button.setText("📱 Conectar WhatsApp")
-            self.qr_code_button.setEnabled(True)
-            self.check_connection_button.setEnabled(True)
+        elif status == 'pending':
+            self.whatsapp_status_indicator.setStyleSheet(style_indicator_yellow)
+            self.whatsapp_status_text.setText(message or "Processando...")
+            self.whatsapp_connect_button.setEnabled(False)
+            self.send_test_button.setEnabled(False)
 
-    def on_qr_code_path_received(self, image_path):
-        """Slot para receber o caminho do arquivo do QR code e exibi-lo."""
+        elif status == 'qr':
+            self.whatsapp_status_indicator.setStyleSheet(style_indicator_yellow)
+            self.whatsapp_status_text.setText("Aguardando leitura do QR Code")
+            self.whatsapp_connect_button.setText("Cancelar Conexão")
+            self.whatsapp_connect_button.setEnabled(True) # Permite cancelar
+            self.send_test_button.setEnabled(False)
+            if self.qr_code_dialog:
+                self.qr_code_dialog.update_status("Aguardando leitura...")
+
+    def _show_qr_code_dialog(self, image_path):
+        """Cria e exibe o diálogo com o QR Code."""
         try:
-            # Carregar o QR code do arquivo
+            if not self.qr_code_dialog:
+                self.qr_code_dialog = QRCodeDialog(self)
+
             pixmap = QPixmap(image_path)
-            if pixmap.isNull():
-                raise Exception("Falha ao carregar imagem do QR Code")
-
-            # Redimensionar para caber na área
-            scaled_pixmap = pixmap.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self.qr_code_label.setPixmap(scaled_pixmap)
-            self.qr_code_label.setText("")  # Remove o texto
-
-            self.whatsapp_status_label.setText("📱 QR Code Gerado - Escaneie com o WhatsApp")
-            self.whatsapp_status_label.setStyleSheet("""
-                QLabel {{
-                    padding: 15px;
-                    border-radius: 8px;
-                    font-weight: bold;
-                    font-size: 13px;
-                    text-align: center;
-                    background-color: #d1ecf1;
-                    color: #0c5460;
-                    border: 1px solid #bee5eb;
-                }}
-            """)
+            self.qr_code_dialog.set_qr_pixmap(pixmap)
+            self.qr_code_dialog.show()
+            self._update_whatsapp_ui_state('qr')
 
         except Exception as e:
-            print(f"Erro ao exibir QR Code: {str(e)}")
-            self.qr_code_label.setText("❌ Erro ao carregar QR Code")
-            self.whatsapp_status_label.setText("❌ Erro ao gerar QR Code")
-            self.whatsapp_status_label.setStyleSheet("""
-                QLabel {{
-                    padding: 15px;
-                    border-radius: 8px;
-                    font-weight: bold;
-                    font-size: 13px;
-                    text-align: center;
-                    background-color: #f8d7da;
-                    color: #721c24;
-                    border: 1px solid #f5c6cb;
-                }}
-            """)
+            logging.error(f"Erro ao criar diálogo do QR Code: {e}", exc_info=True)
+            QMessageBox.critical(self, "Erro", "Não foi possível exibir o QR Code.")
+            self._update_whatsapp_ui_state('disconnected', "Erro ao gerar QR Code")
 
+    def _handle_whatsapp_connection_status(self, status_message):
+        """Atualiza a UI principal e gerencia o diálogo do QR Code."""
+        self.on_whatsapp_status_updated(status_message) # Chama o método original para atualizar a UI
 
+        is_connected = "Conectado" in status_message
+        is_failed = "Erro" in status_message or "falhou" in status_message.lower() or "Desconectado" in status_message
+
+        if self.qr_code_dialog and (is_connected or is_failed):
+            self.qr_code_dialog.close()
+            self.qr_code_dialog = None
 
     def on_whatsapp_log_updated(self, message):
         """Exibe logs informativos do WhatsApp."""
         QMessageBox.information(self, "Informação do WhatsApp", message)
 
-    def on_whatsapp_status_updated(self, status):
-        """Slot para receber atualizações de status do WhatsApp."""
-        try:
-            self.whatsapp_status_label.setText(status)
-
-            # Atualizar cores baseado no status
-            if "Conectado" in status:
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {
-                        padding: 10px;
-                        border-radius: 5px;
-                        font-weight: bold;
-                        text-align: center;
-                        background-color: #d4edda;
-                        color: #155724;
-                        border: 1px solid #c3e6cb;
-                    }
-                """)
-            elif "Aguardando" in status or "QR Code" in status:
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {
-                        padding: 10px;
-                        border-radius: 5px;
-                        font-weight: bold;
-                        text-align: center;
-                        background-color: #d1ecf1;
-                        color: #0c5460;
-                        border: 1px solid #bee5eb;
-                    }
-                """)
-            elif "Erro" in status:
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {
-                        padding: 10px;
-                        border-radius: 5px;
-                        font-weight: bold;
-                        text-align: center;
-                        background-color: #f8d7da;
-                        color: #721c24;
-                        border: 1px solid #f5c6cb;
-                    }
-                """)
-            else:
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {
-                        padding: 10px;
-                        border-radius: 5px;
-                        font-weight: bold;
-                        text-align: center;
-                        background-color: #fff3cd;
-                        color: #856404;
-                        border: 1px solid #ffeaa7;
-                    }
-                """)
-
-        except Exception as e:
-            print(f"Erro ao atualizar status: {str(e)}")
-
-    def disconnect_whatsapp(self):
-        """Desconecta do WhatsApp."""
-        try:
-            from integrations.whatsapp_manager import WhatsAppManager
-            manager = WhatsAppManager.get_instance()
-            manager.disconnect()
-            self.on_whatsapp_status_updated("Desconectado")
-            self.qr_code_label.setText("Clique em 'Conectar WhatsApp' para gerar o QR Code")
-            self.qr_code_label.setPixmap(QPixmap()) # Clear pixmap
-            QMessageBox.information(self, "WhatsApp", "Desconectado com sucesso.")
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Erro ao desconectar do WhatsApp:\n{str(e)}")
+    def on_whatsapp_status_updated(self, status_message):
+        """Slot para receber atualizações de status e atualizar a UI de forma centralizada."""
+        logging.info(f"WhatsApp status update received: {status_message}")
+        if "Conectado" in status_message:
+            self._update_whatsapp_ui_state('connected', status_message)
+        elif "Desconectado" in status_message:
+            self._update_whatsapp_ui_state('disconnected', status_message)
+        elif "Erro" in status_message or "falhou" in status_message.lower():
+            self._update_whatsapp_ui_state('disconnected', status_message)
+            if not "Desconectado" in status_message: # Evita duplo popup
+                QMessageBox.warning(self, "Erro no WhatsApp", status_message)
+        else:
+            self._update_whatsapp_ui_state('pending', status_message)
 
     def send_test_whatsapp_message(self):
         """Envia uma mensagem de teste para o número configurado."""
@@ -1020,175 +1027,168 @@ class SettingsPage(QWidget):
 
         test_message = "✅ Mensagem de teste do sistema PDV Moderno. A integração com o WhatsApp está funcionando!"
         
-        manager.send_message(notification_number, test_message)
+        result = manager.send_message(notification_number, test_message)
+        if result.get('success'):
+            QMessageBox.information(self, "Sucesso", f"Mensagem de teste enviada para {notification_number}.")
+        else:
+            QMessageBox.critical(self, "Falha", f"Não foi possível enviar a mensagem de teste.\n\nErro: {result.get('error')}")
 
-    def check_whatsapp_connection(self):
-        """Verifica o status de conexão do WhatsApp."""
-        try:
-            self.check_connection_button.setText("Verificando...")
-            self.check_connection_button.setEnabled(False)
+    def _create_toggle_switch(self, text):
+        """Cria um conjunto de widgets para um toggle switch moderno com label de status."""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-            from integrations.whatsapp_manager import WhatsAppManager
-            manager = WhatsAppManager.get_instance()
+        toggle = QCheckBox()
+        toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        toggle.setStyleSheet(f"""
+            QCheckBox::indicator {{
+                width: 44px;
+                height: 24px;
+                border-radius: 12px;
+                border: 1px solid {ModernTheme.GRAY_LIGHT};
+                background-color: {ModernTheme.GRAY};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ModernTheme.PRIMARY};
+                border: 1px solid {ModernTheme.PRIMARY};
+            }}
+            QCheckBox::indicator:handle {{
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                background-color: white;
+                margin: 2px;
+            }}
+            QCheckBox::indicator:unchecked:handle {{
+                subcontrol-position: left;
+            }}
+            QCheckBox::indicator:checked:handle {{
+                subcontrol-position: right;
+            }}
+        """)
 
-            # Atualizar status baseado na conexão atual
-            if manager.is_ready:
-                self.whatsapp_status_label.setText("✅ WhatsApp Conectado com Sucesso")
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {{
-                        padding: 15px;
-                        border-radius: 8px;
-                        font-weight: bold;
-                        font-size: 13px;
-                        text-align: center;
-                        background-color: #d4edda;
-                        color: #155724;
-                        border: 1px solid #c3e6cb;
-                    }}
-                """)
-                QMessageBox.information(self, "WhatsApp Conectado",
-                                      "✅ WhatsApp está conectado e pronto para uso!")
+        label = QLabel(text)
+        label.setStyleSheet("font-size: 14px; font-weight: 500; color: #34495e;")
+
+        status_label = QLabel("Desativado")
+        status_label.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {ModernTheme.ERROR};")
+
+        def update_status_label(state):
+            if state == Qt.CheckState.Checked.value:
+                status_label.setText("Ativado")
+                status_label.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {ModernTheme.SUCCESS};")
             else:
-                self.whatsapp_status_label.setText("❌ WhatsApp Desconectado")
-                self.whatsapp_status_label.setStyleSheet("""
-                    QLabel {{
-                        padding: 15px;
-                        border-radius: 8px;
-                        font-weight: bold;
-                        font-size: 13px;
-                        text-align: center;
-                        background-color: #f8d7da;
-                        color: #721c24;
-                        border: 1px solid #f5c6cb;
-                    }}
-                """)
-                QMessageBox.warning(self, "WhatsApp Desconectado",
-                                  "❌ WhatsApp não está conectado.\n\n"
-                                  "Clique em 'Conectar WhatsApp' para gerar um novo QR Code e estabelecer a conexão.")
+                status_label.setText("Desativado")
+                status_label.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {ModernTheme.ERROR};")
+        
+        toggle.stateChanged.connect(update_status_label)
+        update_status_label(toggle.checkState().value) # Seta o estado inicial
 
-        except Exception as e:
-            self.whatsapp_status_label.setText("❌ Erro ao Verificar Conexão")
-            self.whatsapp_status_label.setStyleSheet("""
-                QLabel {{
-                    padding: 15px;
-                    border-radius: 8px;
-                    font-weight: bold;
-                    font-size: 13px;
-                    text-align: center;
-                    background-color: #f8d7da;
-                    color: #721c24;
-                    border: 1px solid #f5c6cb;
-                }}
-            """)
-            QMessageBox.critical(self, "Erro", f"Erro ao verificar conexão com WhatsApp:\n{str(e)}")
-        finally:
-            self.check_connection_button.setText("🔍 Verificar Conexão")
-            self.check_connection_button.setEnabled(True)
+        layout.addWidget(toggle)
+        layout.addWidget(label)
+        layout.addStretch()
+        layout.addWidget(status_label)
+        
+        return widget, toggle
 
     def create_notifications_tab(self):
-        """Cria a aba de configurações de notificações com design profissional."""
+        """Cria a aba de configurações de notificações com um design simplificado e funcional."""
         notifications_tab = QWidget()
         main_layout = QVBoxLayout(notifications_tab)
         main_layout.setSpacing(15)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Scroll area para conteúdo extenso
-        scroll_area = QScrollArea(notifications_tab)
+        scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setStyleSheet("QScrollArea { border: none; }")
-
+        
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setSpacing(20)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # === CABEÇALHO PRINCIPAL ===
-        header_widget = self._create_header_widget()
-        layout.addWidget(header_widget)
+        # --- Seção de Funcionalidades ---
+        features_group = QGroupBox("Funcionalidades de Notificação")
+        features_layout = QVBoxLayout(features_group)
+        features_layout.setSpacing(15)
+        
+        sales_widget, self.sales_notifications_checkbox = self._create_toggle_switch("Notificar Vendas Realizadas")
+        cash_widget, self.cash_notifications_checkbox = self._create_toggle_switch("Notificar Abertura e Fechamento de Caixa")
+        stock_widget, self.stock_alerts_checkbox = self._create_toggle_switch("Enviar Alertas de Estoque Baixo")
+        
+        features_layout.addWidget(sales_widget)
+        features_layout.addWidget(cash_widget)
+        features_layout.addWidget(stock_widget)
+        layout.addWidget(features_group)
 
-        # === DASHBOARD DE STATUS ===
-        status_dashboard = self._create_status_dashboard()
-        layout.addWidget(status_dashboard)
+        # --- Seção de Configurações Adicionais ---
+        settings_group = QGroupBox("Configurações Adicionais")
+        settings_layout = QGridLayout(settings_group)
+        settings_layout.setSpacing(10)
 
-        # === SEÇÃO PRINCIPAL - NOTIFICAÇÕES ===
-        main_section = QGroupBox()
-        main_section.setStyleSheet(self._get_section_style())
-        main_layout_inner = QVBoxLayout(main_section)
-        main_layout_inner.setContentsMargins(20, 20, 20, 20)
-        main_layout_inner.setSpacing(25)
+        settings_layout.addWidget(QLabel("Notificar apenas vendas acima de (R$):"), 0, 0)
+        self.min_sale_value_input = QLineEdit("0,00")
+        self.min_sale_value_input.setMaximumWidth(120)
+        settings_layout.addWidget(self.min_sale_value_input, 0, 1)
 
-        section_title = QLabel("🎯 Funcionalidades Disponíveis")
-        section_title.setStyleSheet("""
-            QLabel {
-                font-size: 18px;
-                font-weight: bold;
-                color: #2c3e50;
-                margin-bottom: 10px;
-            }
-        """)
-        main_layout_inner.addWidget(section_title)
+        settings_layout.addWidget(QLabel("Delay entre notificações (segundos):"), 1, 0)
+        self.notification_delay_input = QLineEdit("0")
+        self.notification_delay_input.setMaximumWidth(120)
+        settings_layout.addWidget(self.notification_delay_input, 1, 1)
+        layout.addWidget(settings_group)
 
-        # Notificação de Vendas
-        sales_feature = self._create_advanced_feature(
-            icon="🛒",
-            title="Notificar Vendas Realizadas",
-            description="Sempre que uma venda for finalizada no PDV, receba uma notificação detalhada por WhatsApp com:\n• Data e hora da venda\n• Cliente atendido\n• Valor total\n• Formas de pagamento utilizadas",
-            feature_key="sale_notifications",
-            default_enabled=True,
-            color_theme="#4CAF50"
-        )
-        main_layout_inner.addWidget(sales_feature)
+        # --- Seção de Destinatários ---
+        recipients_group = QGroupBox("Gerenciar Destinatários")
+        recipients_layout = QVBoxLayout(recipients_group)
+        
+        self.recipients_list = QListWidget()
+        self.recipients_list.setMaximumHeight(120)
+        recipients_layout.addWidget(self.recipients_list)
 
-        # Campo de filtro de valor (para vendas)
-        self.sales_filter_widget = self._create_filter_widget()
-        main_layout_inner.addWidget(self.sales_filter_widget)
+        add_recipient_layout = QHBoxLayout()
+        self.new_recipient_input = QLineEdit()
+        self.new_recipient_input.setPlaceholderText("Novo número (Ex: 5511912345678)")
+        add_recipient_layout.addWidget(self.new_recipient_input)
+        
+        self.add_recipient_button = QPushButton("Adicionar")
+        self.add_recipient_button.clicked.connect(self.add_recipient)
+        add_recipient_layout.addWidget(self.add_recipient_button)
+        
+        self.remove_recipient_button = QPushButton("Remover Selecionado")
+        self.remove_recipient_button.clicked.connect(self.remove_recipient)
+        add_recipient_layout.addWidget(self.remove_recipient_button)
+        
+        recipients_layout.addLayout(add_recipient_layout)
+        layout.addWidget(recipients_group)
 
-        # Notificação de Caixa
-        cash_feature = self._create_advanced_feature(
-            icon="💰",
-            title="Controle de Caixa",
-            description="Seja informado sobre todas as operações de caixa:\n• Notificação quando abrir o caixa\n• Relatório completo quando fechar (com totais por forma de pagamento)\n• Alertas de diferenças no fechamento",
-            feature_key="cash_notifications",
-            default_enabled=True,
-            color_theme="#FF9800"
-        )
-        main_layout_inner.addWidget(cash_feature)
+        # --- Barra de Ações ---
+        action_bar = QHBoxLayout()
+        
+        preview_button = QPushButton("👁️ Ver Exemplo")
+        preview_button.clicked.connect(self.preview_sale_notification)
+        preview_button.setMinimumHeight(40)
+        action_bar.addWidget(preview_button)
 
-        # Alertas de Estoque
-        stock_feature = self._create_advanced_feature(
-            icon="📦",
-            title="Alertas de Estoque Baixo",
-            description="Monitoramento inteligente do estoque:\n• Alertas automáticos quando produtos atingem o estoque mínimo\n• Identificação clara do produto afetado\n• Sugestão para reposição",
-            feature_key="stock_alerts",
-            default_enabled=False,
-            color_theme="#2196F3"
-        )
-        main_layout_inner.addWidget(stock_feature)
+        test_button = QPushButton("📤 Enviar Teste")
+        test_button.clicked.connect(self.test_notifications)
+        test_button.setMinimumHeight(40)
+        action_bar.addWidget(test_button)
 
-        layout.addWidget(main_section)
+        action_bar.addStretch()
+        
+        self.save_notifications_button = QPushButton("💾 Salvar Configurações")
+        self.save_notifications_button.clicked.connect(self.save_notifications_config)
+        self.save_notifications_button.setMinimumHeight(40)
+        action_bar.addWidget(self.save_notifications_button)
+        
+        layout.addLayout(action_bar)
 
-        # === SEÇÃO DESTINATÁRIOS ===
-        recipients_section = self._create_recipients_section()
-        layout.addWidget(recipients_section)
-
-        # === SEÇÃO AVANÇADA ===
-        advanced_section = self._create_advanced_section()
-        layout.addWidget(advanced_section)
-
-        # === RODAPÉ DE AÇÕES ===
-        action_bar = self._create_action_bar()
-        layout.addWidget(action_bar)
-
-        # Configurar scroll area
         scroll_area.setWidget(container)
         main_layout.addWidget(scroll_area)
 
-        # Carregar configurações
         self.load_notifications_config_to_ui()
-        self.update_all_ui_states()
-
         return notifications_tab
 
     def add_recipient(self):
@@ -1222,124 +1222,94 @@ class SettingsPage(QWidget):
             self.recipients_list.takeItem(self.recipients_list.row(current_item))
 
     def load_notifications_config_to_ui(self):
-        """Carrega as configurações de notificações para a interface."""
+        """Carrega as configurações de notificações para a nova interface."""
         try:
             from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
             notifier = get_whatsapp_sales_notifier()
             settings = notifier.get_settings()
 
-            # Carregar configurações dos checkboxes se existirem
-            if hasattr(self, 'sales_notifications_checkbox') and self.sales_notifications_checkbox:
-                enabled = settings.get('enable_sale_notifications', True)
-                self.sales_notifications_checkbox.setChecked(enabled)
-                self.sales_notifications_checkbox.setText("ON" if enabled else "OFF")
-
-            if hasattr(self, 'cash_opening_checkbox') and self.cash_opening_checkbox:
-                enabled = settings.get('enable_cash_notifications', True)
-                self.cash_opening_checkbox.setChecked(enabled)
-                self.cash_opening_checkbox.setText("ON" if enabled else "OFF")
-
-            if hasattr(self, 'stock_alerts_checkbox') and self.stock_alerts_checkbox:
-                enabled = settings.get('enable_low_stock_alerts', False)
-                self.stock_alerts_checkbox.setChecked(enabled)
-                self.stock_alerts_checkbox.setText("ON" if enabled else "OFF")
+            # Carregar configurações dos checkboxes
+            self.sales_notifications_checkbox.setChecked(settings.get('enable_sale_notifications', True))
+            self.cash_notifications_checkbox.setChecked(settings.get('enable_cash_notifications', True))
+            self.stock_alerts_checkbox.setChecked(settings.get('enable_low_stock_alerts', False))
 
             # Valor mínimo
-            if hasattr(self, 'min_sale_value_input') and self.min_sale_value_input:
-                min_value = settings.get('minimum_sale_value', 0.0)
-                self.min_sale_value_input.setText(f"{min_value:.2f}".replace('.', ','))
+            min_value = settings.get('minimum_sale_value', 0.0)
+            self.min_sale_value_input.setText(f"{min_value:.2f}".replace('.', ','))
 
             # Delay
-            if hasattr(self, 'notification_delay_input') and self.notification_delay_input:
-                delay = settings.get('notification_delay', 0)
-                self.notification_delay_input.setText(str(delay))
+            delay = settings.get('notification_delay', 0)
+            self.notification_delay_input.setText(str(delay))
+            
+            # Destinatários
+            self.recipients_list.clear()
+            recipients = settings.get('notification_recipients', [])
+            if recipients:
+                for r in recipients:
+                    self.recipients_list.addItem(r)
 
         except Exception as e:
-            print(f"Erro ao carregar configurações de notificações: {e}")
+            logging.error(f"Erro ao carregar configurações de notificações: {e}", exc_info=True)
 
     def save_notifications_config(self):
-        """Salva as configurações de notificações."""
+        """Salva as configurações de notificações da nova interface."""
         try:
             from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
             notifier = get_whatsapp_sales_notifier()
 
-            # Salvar configurações baseado nos widgets que existem
-            if hasattr(self, 'sales_notifications_checkbox') and self.sales_notifications_checkbox:
-                notifier.enable_sale_notifications(self.sales_notifications_checkbox.isChecked())
-
-            if hasattr(self, 'cash_opening_checkbox') and self.cash_opening_checkbox:
-                notifier.enable_cash_notifications(self.cash_opening_checkbox.isChecked())
-
-            if hasattr(self, 'stock_alerts_checkbox') and self.stock_alerts_checkbox:
-                notifier.enable_low_stock_alerts(self.stock_alerts_checkbox.isChecked())
+            # Salvar configurações dos checkboxes
+            notifier.enable_sale_notifications(self.sales_notifications_checkbox.isChecked())
+            notifier.enable_cash_notifications(self.cash_notifications_checkbox.isChecked())
+            notifier.enable_low_stock_alerts(self.stock_alerts_checkbox.isChecked())
 
             # Salvar valor mínimo
-            if hasattr(self, 'min_sale_value_input') and self.min_sale_value_input:
-                try:
-                    min_value_text = self.min_sale_value_input.text().replace(',', '.')
-                    min_value = float(min_value_text) if min_value_text else 0.0
-                    notifier.set_minimum_sale_value(min_value)
-                except ValueError:
-                    QMessageBox.warning(self, "Valor Inválido", "O valor mínimo deve ser um número válido.")
-                    return
+            try:
+                min_value_text = self.min_sale_value_input.text().replace(',', '.')
+                min_value = float(min_value_text) if min_value_text else 0.0
+                notifier.set_minimum_sale_value(min_value)
+            except ValueError:
+                QMessageBox.warning(self, "Valor Inválido", "O valor mínimo deve ser um número válido.")
+                return
 
             # Coletar destinatários da lista
-            recipients = []
-            if hasattr(self, 'recipients_list') and self.recipients_list:
-                for i in range(self.recipients_list.count()):
-                    recipients.append(self.recipients_list.item(i).text())
+            recipients_from_ui = []
+            for i in range(self.recipients_list.count()):
+                recipients_from_ui.append(self.recipients_list.item(i).text())
 
             # Atualizar destinatários
-            if recipients:
-                current_recipients = notifier.get_settings().get('notification_recipients', [])
-                for recipient in recipients:
-                    if recipient not in current_recipients:
-                        notifier.add_recipient(recipient)
+            current_recipients = notifier.get_settings().get('notification_recipients', [])
+            # Adicionar novos
+            for recipient in recipients_from_ui:
+                if recipient not in current_recipients:
+                    notifier.add_recipient(recipient)
+            # Remover os que não estão mais na UI
+            for recipient in current_recipients:
+                if recipient not in recipients_from_ui:
+                    notifier.remove_recipient(recipient)
 
-                # Remover destinatários que não estão mais na lista
-                for recipient in current_recipients:
-                    if recipient not in recipients:
-                        notifier.remove_recipient(recipient)
+            # Salvar delay
+            try:
+                delay = int(self.notification_delay_input.text()) if self.notification_delay_input.text() else 0
+                settings = notifier.get_settings()
+                settings['notification_delay'] = delay
+                
+                # Lógica de salvar no arquivo (mantida da versão anterior)
+                import json
+                from utils import get_data_path
+                config_path = get_data_path('whatsapp_sales_notifications.json')
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(settings, f, indent=4, ensure_ascii=False)
 
-            # Salvar delay (atualizar settings diretamente)
-            if hasattr(self, 'notification_delay_input') and self.notification_delay_input:
-                try:
-                    delay = int(self.notification_delay_input.text()) if self.notification_delay_input.text() else 0
-                    settings = notifier.get_settings()
-                    settings['notification_delay'] = delay
-                    # Salvar no arquivo
-                    import json
-                    from utils import get_data_path
-                    config_path = get_data_path('whatsapp_sales_notifications.json')
-                    with open(config_path, 'w', encoding='utf-8') as f:
-                        json.dump(settings, f, indent=4, ensure_ascii=False)
-                except ValueError:
-                    QMessageBox.warning(self, "Valor Inválido", "O delay deve ser um número inteiro.")
-                    return
+            except ValueError:
+                QMessageBox.warning(self, "Valor Inválido", "O delay deve ser um número inteiro.")
+                return
 
             QMessageBox.information(self, "Sucesso", "Configurações de notificações salvas com sucesso!")
-
-            # Recarregar configurações para refletir mudanças
             notifier._load_notification_settings()
 
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao salvar configurações: {e}")
-            print(f"Erro detalhado: {e}")
-
-    def update_whatsapp_status(self):
-        """Atualiza o status inicial do WhatsApp."""
-        self.whatsapp_status_label.setText("⏳ Aguardando configuração...")
-        self.whatsapp_status_label.setStyleSheet("""
-            QLabel {{
-                padding: 10px;
-                border-radius: 5px;
-                font-weight: bold;
-                text-align: center;
-                background-color: #fff3cd;
-                color: #856404;
-                border: 1px solid #ffeaa7;
-            }}
-        """)
+            logging.error(f"Erro detalhado: {e}", exc_info=True)
 
     def preview_sale_notification(self):
         """Mostra um exemplo da mensagem de venda que seria enviada."""
@@ -1451,9 +1421,9 @@ Este é apenas um teste. Se você recebeu esta mensagem, as notificações estã
                     if result.get('success'):
                         success_count += 1
                     else:
-                        print(f"Falha ao enviar teste para {phone}: {result.get('error')}")
+                        logging.warning(f"Falha ao enviar teste para {phone}: {result.get('error')}")
                 except Exception as e:
-                    print(f"Erro ao enviar teste para {phone}: {e}")
+                    logging.error(f"Erro ao enviar teste para {phone}: {e}", exc_info=True)
 
             if success_count > 0:
                 QMessageBox.information(self, "Teste Enviado",
@@ -1466,863 +1436,3 @@ Este é apenas um teste. Se você recebeu esta mensagem, as notificações estã
 
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao testar notificações:\n{str(e)}")
-
-    def on_sale_notifications_toggled(self, state):
-        """Chamado quando o checkbox de notificações de vendas é alterado."""
-        try:
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_sale_notifications(bool(state))
-        except Exception as e:
-            print(f"Erro ao alterar notificações de vendas: {e}")
-
-    def on_cash_notifications_toggled(self, state):
-        """Chamado quando os checkboxes de notificações de caixa são alterados."""
-        try:
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_cash_notifications(bool(state))
-        except Exception as e:
-            print(f"Erro ao alterar notificações de caixa: {e}")
-
-    def on_stock_alerts_toggled(self, state):
-        """Chamado quando o checkbox de alertas de estoque é alterado."""
-        try:
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_low_stock_alerts(bool(state))
-        except Exception as e:
-            print(f"Erro ao alterar alertas de estoque: {e}")
-
-    def _create_feature_card(self, title, description, feature_key, default_enabled=True):
-        """Cria um cartão estilizado para um recurso de notificação."""
-        # Container do cartão
-        card = QWidget()
-        card.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border: 1px solid #e9ecef;
-                border-radius: 8px;
-                padding: 15px;
-                margin-bottom: 10px;
-            }
-        """)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        # Cabeçalho do cartão
-        header_layout = QHBoxLayout()
-
-        # Título e descrição
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(2)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-                color: #2c3e50;
-            }
-        """)
-        text_layout.addWidget(title_label)
-
-        desc_label = QLabel(description)
-        desc_label.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
-                color: #6c757d;
-                line-height: 1.2;
-            }
-        """)
-        desc_label.setWordWrap(True)
-        text_layout.addWidget(desc_label)
-
-        header_layout.addLayout(text_layout, 1)
-
-        # Toggle switch
-        toggle_button = QPushButton()
-        toggle_button.setFixedSize(50, 25)
-        toggle_button.setCheckable(True)
-        toggle_button.setChecked(default_enabled)
-        toggle_button.setStyleSheet("""
-            QPushButton {
-                border-radius: 12px;
-                border: 1px solid #dee2e6;
-                background-color: #dc3545;
-                position: relative;
-            }
-            QPushButton:checked {
-                background-color: #28a745;
-                border-color: #28a745;
-            }
-            QPushButton:!checked {
-                background-color: #6c757d;
-                border-color: #6c757d;
-            }
-        """)
-
-        # Conectar sinais baseado na funcionalidade
-        if feature_key == "sale_notifications":
-            toggle_button.clicked.connect(self.on_sale_notifications_ui_toggled)
-            self.sales_notifications_checkbox = toggle_button  # Referência para compatibilidade
-        elif feature_key == "cash_notifications":
-            toggle_button.clicked.connect(self.on_cash_notifications_ui_toggled)
-            self.cash_opening_checkbox = toggle_button  # Referência para compatibilidade
-        elif feature_key == "stock_alerts":
-            toggle_button.clicked.connect(self.on_stock_alerts_ui_toggled)
-            self.stock_alerts_checkbox = toggle_button  # Referência para compatibilidade
-
-        header_layout.addWidget(toggle_button)
-        layout.addLayout(header_layout)
-
-        return card
-
-    def on_sale_notifications_ui_toggled(self):
-        """Chamado quando o toggle de vendas na UI é alterado."""
-        try:
-            sender = self.sender()
-            enabled = sender.isChecked()
-
-            # Mostrar/esconder o campo de valor mínimo
-            self.min_value_widget.setVisible(enabled)
-
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_sale_notifications(enabled)
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar notificações de vendas: {e}")
-
-    def on_cash_notifications_ui_toggled(self):
-        """Chamado quando o toggle de caixa na UI é alterado."""
-        try:
-            sender = self.sender()
-            enabled = sender.isChecked()
-
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_cash_notifications(enabled)
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar notificações de caixa: {e}")
-
-    def on_stock_alerts_ui_toggled(self):
-        """Chamado quando o toggle de alertas de estoque na UI é alterado."""
-        try:
-            sender = self.sender()
-            enabled = sender.isChecked()
-
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_low_stock_alerts(enabled)
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar alertas de estoque: {e}")
-
-    def on_master_toggle_changed(self):
-        """Chamado quando o controle mestre é alterado."""
-        try:
-            enabled = self.master_notification_toggle.isChecked()
-
-            # Atualizar visual do botão mestre
-            if enabled:
-                self.master_notification_toggle.setStyleSheet("""
-                    QPushButton {
-                        border-radius: 15px;
-                        border: 2px solid #dee2e6;
-                        background-color: #28a745;
-                        color: white;
-                    }
-                """)
-                self.master_notification_toggle.setText("ATIVADO")
-                self.master_status_label.setText("ATIVADO")
-                self.master_status_label.setStyleSheet("""
-                    QLabel {
-                        font-weight: bold;
-                        color: #28a745;
-                        margin-left: 10px;
-                        font-size: 12px;
-                    }
-                """)
-            else:
-                self.master_notification_toggle.setStyleSheet("""
-                    QPushButton {
-                        border-radius: 15px;
-                        border: 2px solid #dee2e6;
-                        background-color: #6c757d;
-                        color: white;
-                    }
-                """)
-                self.master_notification_toggle.setText("DESLIGADO")
-                self.master_status_label.setText("DESLIGADO")
-                self.master_status_label.setStyleSheet("""
-                    QLabel {
-                        font-weight: bold;
-                        color: #dc3545;
-                        margin-left: 10px;
-                        font-size: 12px;
-                    }
-                """)
-
-            # Aplicar configuração globalmente (esta é apenas uma demonstração visual)
-            # Em uma implementação real, isso poderia desabilitar todas as notificações
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar controle mestre: {e}")
-
-    def on_min_value_changed(self):
-        """Chamado quando o valor mínimo é alterado."""
-        try:
-            text = self.min_sale_value_input.text().replace(',', '.')
-            if text.strip():
-                try:
-                    value = float(text)
-                    from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-                    notifier = get_whatsapp_sales_notifier()
-                    notifier.set_minimum_sale_value(value)
-                except ValueError:
-                    pass  # Ignora valores inválidos temporariamente
-        except Exception as e:
-            print(f"Erro ao alterar valor mínimo: {e}")
-
-    def update_notifications_status(self):
-        """Atualiza o status das notificações na barra de status."""
-        try:
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            settings = notifier.get_settings()
-
-            active_count = 0
-            total_features = 3
-
-            if settings.get('enable_sale_notifications', False):
-                active_count += 1
-            if settings.get('enable_cash_notifications', False):
-                active_count += 1
-            if settings.get('enable_low_stock_alerts', False):
-                active_count += 1
-
-            recipients = len(settings.get('notification_recipients', []))
-
-            if active_count == 0:
-                status_text = "Sistema de notificações: DESLIGADO"
-                status_color = "#dc3545"
-                icon = "🔴"
-            elif active_count == total_features:
-                status_text = f"Todas as notificações estão ativas ({recipients} destinatários)"
-                status_color = "#28a745"
-                icon = "🟢"
-            else:
-                status_text = f"{active_count} de {total_features} notificações ativas ({recipients} destinatários)"
-                status_color = "#ffc107"
-                icon = "🟡"
-
-            # Atualizar o label de status
-            status_label = self.notifications_status_widget.findChild(QLabel, "notifications_status_label")
-            if status_label:
-                status_label.setText(status_text)
-                status_label.setStyleSheet(f"""
-                    QLabel {{
-                        font-size: 14px;
-                        font-weight: 500;
-                        color: {status_color};
-                    }}
-                """)
-
-            # Atualizar ícone
-            icon_labels = self.notifications_status_widget.findChildren(QLabel)
-            for label in icon_labels:
-                if label.text() in ["⚙️", "🔴", "🟢", "🟡"]:
-                    label.setText(icon)
-                    break
-
-        except Exception as e:
-            print(f"Erro ao atualizar status das notificações: {e}")
-
-    def _create_header_widget(self):
-        """Cria o widget do cabeçalho da seção de notificações."""
-        header = QWidget()
-        layout = QVBoxLayout(header)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
-
-        title = QLabel("📱 Sistema de Notificações WhatsApp")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 24px;
-                font-weight: bold;
-                color: #2c3e50;
-                margin-bottom: 5px;
-            }
-        """)
-        layout.addWidget(title)
-
-        description = QLabel("Configure notificações automáticas para acompanhar todas as operações do seu PDV em tempo real")
-        description.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                color: #6c757d;
-                margin-bottom: 15px;
-            }
-        """)
-        description.setWordWrap(True)
-        layout.addWidget(description)
-
-        return header
-
-    def _create_status_dashboard(self):
-        """Cria o dashboard de status das notificações."""
-        self.notifications_status_widget = QWidget()
-        self.notifications_status_widget.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea, stop:1 #764ba2);
-                border-radius: 12px;
-                padding: 20px;
-                margin: 10px 0;
-            }
-        """)
-
-        layout = QHBoxLayout(self.notifications_status_widget)
-        layout.setSpacing(15)
-
-        # Ícone de status
-        icon_label = QLabel("⚙️")
-        icon_label.setStyleSheet("font-size: 32px;")
-        icon_label.setFixedSize(40, 40)
-        layout.addWidget(icon_label)
-
-        # Texto de status
-        status_label = QLabel("Carregando configurações...")
-        status_label.setObjectName("notifications_status_label")
-        status_label.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-                color: white;
-            }
-        """)
-        layout.addWidget(status_label)
-        layout.addStretch()
-
-        return self.notifications_status_widget
-
-    def _create_advanced_feature(self, icon, title, description, feature_key, default_enabled=False, color_theme="#4CAF50"):
-        """Cria um cartão avançado para uma funcionalidade."""
-        card = QWidget()
-        card.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border: 2px solid %s;
-                border-radius: 12px;
-                padding: 20px;
-                margin-bottom: 15px;
-                border-left: 6px solid %s;
-            }
-            QWidget:hover {
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            }
-        """ % (color_theme, color_theme))
-
-        layout = QVBoxLayout(card)
-        layout.setSpacing(12)
-
-        # Cabeçalho
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 8)
-        header_layout.setSpacing(12)
-
-        feature_icon = QLabel(icon)
-        feature_icon.setStyleSheet(f"font-size: 28px;")
-        header_layout.addWidget(feature_icon)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
-            QLabel {{
-                font-size: 18px;
-                font-weight: bold;
-                color: {color_theme};
-            }}
-        """)
-        header_layout.addWidget(title_label)
-
-        # Toggle
-        toggle = QPushButton()
-        toggle.setFixedSize(60, 30)
-        toggle.setCheckable(True)
-        toggle.setChecked(default_enabled)
-        toggle.setStyleSheet(f"""
-            QPushButton {{
-                border-radius: 15px;
-                border: 2px solid #dee2e6;
-                background-color: #dc3545;
-                color: white;
-                font-weight: bold;
-                font-size: 10px;
-            }}
-            QPushButton:checked {{
-                background-color: {color_theme};
-                border-color: {color_theme};
-            }}
-            QPushButton:!checked {{
-                background-color: #6c757d;
-                border-color: #6c757d;
-            }}
-        """)
-
-        # Conectar sinais
-        if feature_key == "sale_notifications":
-            toggle.clicked.connect(self.on_sale_notifications_ui_toggled)
-            self.sales_notifications_checkbox = toggle
-        elif feature_key == "cash_notifications":
-            toggle.clicked.connect(self.on_cash_notifications_ui_toggled)
-            self.cash_opening_checkbox = toggle
-        elif feature_key == "stock_alerts":
-            toggle.clicked.connect(self.on_stock_alerts_ui_toggled)
-            self.stock_alerts_checkbox = toggle
-
-        toggle.setText("ON" if default_enabled else "OFF")
-        toggle.clicked.connect(lambda: toggle.setText("ON" if toggle.isChecked() else "OFF"))
-
-        header_layout.addStretch()
-        header_layout.addWidget(toggle)
-
-        layout.addWidget(header)
-
-        # Descrição
-        desc_label = QLabel(description)
-        desc_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #495057;
-                line-height: 1.4;
-                padding-left: 8px;
-            }
-        """)
-        desc_label.setWordWrap(True)
-        layout.addWidget(desc_label)
-
-        return card
-
-    def _create_filter_widget(self):
-        """Cria widget de filtro para valor mínimo de vendas."""
-        self.min_value_widget = QWidget()
-        layout = QHBoxLayout(self.min_value_widget)
-        layout.setContentsMargins(40, 5, 20, 15)
-        layout.setSpacing(10)
-
-        filter_icon = QLabel("💵")
-        filter_icon.setStyleSheet("font-size: 20px;")
-        layout.addWidget(filter_icon)
-
-        label = QLabel("Filtrar vendas por valor mínimo:")
-        label.setStyleSheet("font-size: 13px; color: #6c757d; font-weight: bold;")
-        layout.addWidget(label)
-
-        self.min_sale_value_input = QLineEdit("0,00")
-        self.min_sale_value_input.setMaximumWidth(100)
-        self.min_sale_value_input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #e9ecef;
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 13px;
-                background-color: white;
-                font-weight: bold;
-            }
-            QLineEdit:focus {
-                border-color: #007bff;
-            }
-        """)
-        self.min_sale_value_input.setToolTip("Vendas com valor menor que este não serão notificadas")
-        self.min_sale_value_input.textChanged.connect(self.on_min_value_changed)
-        layout.addWidget(self.min_sale_value_input)
-
-        info_label = QLabel("Apenas vendas acima deste valor serão notificadas")
-        info_label.setStyleSheet("font-size: 11px; color: #868e96; font-style: italic;")
-        layout.addWidget(info_label)
-        layout.addStretch()
-
-        return self.min_value_widget
-
-    def _create_recipients_section(self):
-        """Cria a seção de gerenciamento de destinatários."""
-        section = QGroupBox("👥 Gerenciamento de Destinatários")
-        section.setStyleSheet(self._get_section_style())
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        # Descrição
-        desc = QLabel("Configure os números de telefone que receberão todas as notificações do sistema")
-        desc.setStyleSheet("font-size: 13px; color: #6c757d; margin-bottom: 10px;")
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
-
-        # Lista de destinatários
-        self.recipients_list = QListWidget()
-        self.recipients_list.setMaximumHeight(140)
-        self.recipients_list.setStyleSheet("""
-            QListWidget {
-                border: 2px solid #e9ecef;
-                border-radius: 10px;
-                background-color: white;
-                font-size: 13px;
-                padding: 8px;
-                selection-background-color: #007bff;
-            }
-            QListWidget::item {
-                padding: 10px;
-                border-bottom: 1px solid #f8f9fa;
-                background-color: transparent;
-                border-radius: 6px;
-                margin-bottom: 5px;
-            }
-            QListWidget::item:selected {
-                background-color: #e3f2fd;
-                border: 2px solid #007bff;
-                color: #007bff;
-            }
-            QListWidget::item:hover {
-                background-color: #f8f9fa;
-                border: 1px solid #007bff;
-            }
-        """)
-        layout.addWidget(self.recipients_list)
-
-        # Controles de adicionar/remover
-        controls_widget = QWidget()
-        controls_layout = QHBoxLayout(controls_widget)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(15)
-
-        # Adicionar
-        add_widget = QWidget()
-        add_layout = QHBoxLayout(add_widget)
-        add_layout.setContentsMargins(0, 0, 0, 0)
-        add_layout.setSpacing(8)
-
-        add_label = QLabel("Adicionar número:")
-        add_label.setStyleSheet("font-size: 12px; color: #495057;")
-        add_layout.addWidget(add_label)
-
-        self.new_recipient_input = QLineEdit()
-        self.new_recipient_input.setPlaceholderText("Ex: 5511999999999")
-        self.new_recipient_input.setMaximumWidth(150)
-        self.new_recipient_input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #e9ecef;
-                border-radius: 8px;
-                padding: 8px;
-                font-size: 12px;
-                background-color: white;
-            }
-            QLineEdit:focus {
-                border-color: #007bff;
-            }
-        """)
-        add_layout.addWidget(self.new_recipient_input)
-
-        add_button = QPushButton("➕ Adicionar")
-        add_button.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 15px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #218838;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
-        """)
-        add_button.clicked.connect(self.add_recipient)
-        add_layout.addWidget(add_button)
-
-        controls_layout.addWidget(add_widget)
-        controls_layout.addStretch()
-
-        # Remover
-        remove_button = QPushButton("🗑️ Remover Selecionado")
-        remove_button.setStyleSheet("""
-            QPushButton {
-                background-color: #dc3545;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 15px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #c82333;
-            }
-            QPushButton:pressed {
-                background-color: #bd2130;
-            }
-        """)
-        remove_button.clicked.connect(self.remove_recipient)
-        controls_layout.addWidget(remove_button)
-
-        layout.addWidget(controls_widget)
-
-        return section
-
-    def _create_advanced_section(self):
-        """Cria a seção de configurações avançadas."""
-        section = QGroupBox("⚙️ Configurações Avançadas")
-        section.setStyleSheet(self._get_section_style())
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        # Controle de delay
-        delay_widget = QWidget()
-        delay_layout = QHBoxLayout(delay_widget)
-        delay_layout.setContentsMargins(0, 0, 0, 0)
-        delay_layout.setSpacing(12)
-
-        delay_icon = QLabel("⏱️")
-        delay_icon.setStyleSheet("font-size: 24px;")
-        delay_layout.addWidget(delay_icon)
-
-        delay_label = QLabel("Delay mínimo entre notificações:")
-        delay_label.setStyleSheet("font-size: 14px; color: #495057; font-weight: bold;")
-        delay_layout.addWidget(delay_label)
-
-        self.notification_delay_input = QLineEdit("0")
-        self.notification_delay_input.setMaximumWidth(80)
-        self.notification_delay_input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #e9ecef;
-                border-radius: 8px;
-                padding: 8px;
-                font-size: 13px;
-                background-color: white;
-                font-weight: bold;
-                text-align: center;
-            }
-            QLineEdit:focus {
-                border-color: #007bff;
-            }
-        """)
-        self.notification_delay_input.setToolTip("Segundos de espera entre notificações consecutivas (0 = sem delay)")
-        delay_layout.addWidget(self.notification_delay_input)
-
-        delay_unit = QLabel("segundos")
-        delay_unit.setStyleSheet("font-size: 12px; color: #6c757d;")
-        delay_layout.addWidget(delay_unit)
-
-        delay_hint = QLabel("(0 = enviar imediatamente)")
-        delay_hint.setStyleSheet("font-size: 11px; color: #868e96; font-style: italic;")
-        delay_layout.addWidget(delay_hint)
-
-        delay_layout.addStretch()
-
-        layout.addWidget(delay_widget)
-
-        return section
-
-    def _create_action_bar(self):
-        """Cria a barra de ações no rodapé."""
-        action_bar = QWidget()
-        action_bar.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border-top: 2px solid #e9ecef;
-                padding: 20px;
-                margin-top: 20px;
-            }
-        """)
-        layout = QHBoxLayout(action_bar)
-        layout.setSpacing(20)
-
-        # Botão de prévia
-        preview_button = QPushButton("👁️ Ver Exemplo de Mensagem")
-        preview_button.setMinimumHeight(45)
-        preview_button.setStyleSheet("""
-            QPushButton {
-                background-color: #17a2b8;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 12px 25px;
-                font-weight: bold;
-                font-size: 13px;
-                min-width: 200px;
-            }
-            QPushButton:hover {
-                background-color: #138496;
-                border: 2px solid #17a2b8;
-            }
-        """)
-        preview_button.clicked.connect(self.preview_sale_notification)
-        layout.addWidget(preview_button)
-
-        layout.addStretch()
-
-        # Botão de teste
-        test_button = QPushButton("📤 Enviar Teste")
-        test_button.setMinimumHeight(45)
-        test_button.setStyleSheet("""
-            QPushButton {
-                background-color: #ffc107;
-                color: #212529;
-                border: none;
-                border-radius: 10px;
-                padding: 12px 25px;
-                font-weight: bold;
-                font-size: 13px;
-                min-width: 160px;
-            }
-            QPushButton:hover {
-                background-color: #e0a800;
-                border: 2px solid #ffc107;
-            }
-        """)
-        test_button.clicked.connect(self.test_notifications)
-        layout.addWidget(test_button)
-
-        # Botão salvar
-        save_button = QPushButton("💾 Salvar Configurações")
-        save_button.setMinimumHeight(45)
-        save_button.setStyleSheet("""
-            QPushButton {
-                background-color: #007bff;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 12px 25px;
-                font-weight: bold;
-                font-size: 13px;
-                min-width: 200px;
-            }
-            QPushButton:hover {
-                background-color: #0056b3;
-                border: 2px solid #007bff;
-            }
-        """)
-        save_button.clicked.connect(self.save_notifications_config)
-        layout.addWidget(save_button)
-
-        return action_bar
-
-    def _get_section_style(self):
-        """Retorna estilos comuns para seções."""
-        return """
-            QGroupBox {
-                font-size: 18px;
-                font-weight: bold;
-                color: #2c3e50;
-                border: 2px solid #e9ecef;
-                border-radius: 12px;
-                margin-top: 15px;
-                padding-top: 20px;
-                background-color: #fafafa;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 20px;
-                padding: 0 10px;
-                color: #2c3e50;
-                font-weight: bold;
-                font-size: 16px;
-            }
-        """
-
-    def update_all_ui_states(self):
-        """Atualiza todos os estados da interface com base nas configurações atuais."""
-        try:
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            settings = notifier.get_settings()
-
-            # Atualizar estados dos toggles
-            if hasattr(self, 'sales_notifications_checkbox'):
-                enabled = settings.get('enable_sale_notifications', True)
-                self.sales_notifications_checkbox.setChecked(enabled)
-                self.sales_notifications_checkbox.setText("ON" if enabled else "OFF")
-                self.min_value_widget.setVisible(enabled)
-
-            if hasattr(self, 'cash_opening_checkbox'):
-                enabled = settings.get('enable_cash_notifications', True)
-                self.cash_opening_checkbox.setChecked(enabled)
-                self.cash_opening_checkbox.setText("ON" if enabled else "OFF")
-
-            if hasattr(self, 'stock_alerts_checkbox'):
-                enabled = settings.get('enable_low_stock_alerts', False)
-                self.stock_alerts_checkbox.setChecked(enabled)
-                self.stock_alerts_checkbox.setText("ON" if enabled else "OFF")
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao atualizar estados da UI: {e}")
-
-    def on_sale_notifications_ui_toggled(self):
-        """Chamado quando o toggle de vendas na UI é alterado."""
-        try:
-            sender = self.sender()
-            enabled = sender.isChecked()
-            sender.setText("ON" if enabled else "OFF")
-
-            # Mostrar/esconder o campo de valor mínimo
-            if hasattr(self, 'min_value_widget'):
-                self.min_value_widget.setVisible(enabled)
-
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_sale_notifications(enabled)
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar notificações de vendas: {e}")
-
-    def on_cash_notifications_ui_toggled(self):
-        """Chamado quando o toggle de caixa na UI é alterado."""
-        try:
-            sender = self.sender()
-            enabled = sender.isChecked()
-            sender.setText("ON" if enabled else "OFF")
-
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_cash_notifications(enabled)
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar notificações de caixa: {e}")
-
-    def on_stock_alerts_ui_toggled(self):
-        """Chamado quando o toggle de alertas de estoque na UI é alterado."""
-        try:
-            sender = self.sender()
-            enabled = sender.isChecked()
-            sender.setText("ON" if enabled else "OFF")
-
-            from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-            notifier = get_whatsapp_sales_notifier()
-            notifier.enable_low_stock_alerts(enabled)
-
-            self.update_notifications_status()
-
-        except Exception as e:
-            print(f"Erro ao alterar alertas de estoque: {e}")

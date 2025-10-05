@@ -1,19 +1,22 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QDialog, QGridLayout, QGroupBox, QInputDialog, QSpacerItem, QSizePolicy, QAbstractItemView
+    QDialog, QGridLayout, QGroupBox, QInputDialog, QSpacerItem, QSizePolicy, QAbstractItemView,
+    QDialogButtonBox
 )
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
 import json
 import os
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import database as db
 from hardware.scale_handler import ScaleHandler
 from hardware.printer_handler import PrinterHandler
 from ui.payment_dialog import PaymentDialog
+from ui.product_search_dialog import ProductSearchDialog
 from ui.theme import ModernTheme
 from utils import get_data_path
+import logging
 
 class SalesPage(QWidget):
     def __init__(self, main_window, scale_handler, printer_handler):
@@ -46,7 +49,7 @@ class SalesPage(QWidget):
         """Slot para receber erros da balança."""
         self.last_known_weight = 0.0
         self.weight_label.setText("Erro kg")
-        print(f"SalesPage Scale Error: {error_message}")
+        logging.warning(f"SalesPage Scale Error: {error_message}")
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -59,8 +62,11 @@ class SalesPage(QWidget):
         product_code_label = QLabel("Código do Produto:")
         self.product_code_input = QLineEdit(placeholderText="Leia o código de barras ou digite aqui")
         self.product_code_input.setObjectName("modern_input")
+        self.search_product_button = QPushButton("Buscar (F5)")
+        self.search_product_button.setObjectName("modern_button_secondary")
         product_input_layout.addWidget(product_code_label)
-        product_input_layout.addWidget(self.product_code_input)
+        product_input_layout.addWidget(self.product_code_input, 1) # Dar mais espaço ao input
+        product_input_layout.addWidget(self.search_product_button)
         left_layout.addLayout(product_input_layout)
         
         self.sale_items_table = QTableWidget()
@@ -69,6 +75,9 @@ class SalesPage(QWidget):
         self.sale_items_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.sale_items_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.sale_items_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # Permitir edição da quantidade com duplo clique
+        self.sale_items_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers) # Desabilitar edição padrão
+        self.sale_items_table.doubleClicked.connect(self.edit_item_quantity)
         left_layout.addWidget(self.sale_items_table)
 
         self.remove_item_button = QPushButton("Remover Item Selecionado")
@@ -163,6 +172,7 @@ class SalesPage(QWidget):
         
         # Conexões
         self.product_code_input.returnPressed.connect(self.add_product_to_sale)
+        self.search_product_button.clicked.connect(self.open_product_search_dialog)
         self.finish_sale_button.clicked.connect(self.open_payment_dialog)
         self.cancel_sale_button.clicked.connect(self.cancel_sale)
         self.get_weight_button.clicked.connect(self.get_weight_from_scale)
@@ -179,6 +189,16 @@ class SalesPage(QWidget):
         QShortcut(QKeySequence("F2"), self).activated.connect(self.cancel_sale)
         QShortcut(QKeySequence("F3"), self).activated.connect(self.hold_current_sale)
         QShortcut(QKeySequence("F4"), self).activated.connect(self.resume_held_sale)
+        QShortcut(QKeySequence("F5"), self).activated.connect(self.open_product_search_dialog)
+
+    # --- Funções de Busca de Produto ---
+    def open_product_search_dialog(self):
+        dialog = ProductSearchDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            barcode = dialog.get_selected_barcode()
+            if barcode:
+                self.product_code_input.setText(barcode)
+                self.add_product_to_sale()
 
     # --- Funções de Impressão ---
     def load_print_config(self):
@@ -257,12 +277,20 @@ class SalesPage(QWidget):
                 quantity = Decimal(str(self.last_known_weight))
 
             if quantity <= 0:
-                # Se o peso for inválido, abre o diálogo para entrada manual
-                weight, ok = QInputDialog.getDouble(self, "Entrada Manual de Peso", "Digite o peso em KG:", decimals=3, min=0.001)
-                if ok and weight > 0:
-                    quantity = Decimal(str(weight))
+                # Se o peso for inválido, abre o diálogo para entrada manual de texto
+                weight_str, ok = QInputDialog.getText(self, "Entrada Manual de Peso", "Digite o peso em KG (ex: 1,250):")
+                if ok and weight_str:
+                    try:
+                        # Garante que tanto vírgula quanto ponto sejam aceitos
+                        quantity = Decimal(weight_str.replace(",", "."))
+                        if quantity <= 0:
+                            QMessageBox.warning(self, "Peso Inválido", "O peso deve ser maior que zero.")
+                            return
+                    except InvalidOperation:
+                        QMessageBox.warning(self, "Formato Inválido", "O peso digitado não é um número válido.")
+                        return
                 else:
-                    # Se o usuário cancelar ou inserir peso inválido, não adiciona o produto
+                    # Se o usuário cancelar ou não digitar nada, não adiciona o produto
                     return
         else:
             quantity = Decimal('1')
@@ -279,6 +307,24 @@ class SalesPage(QWidget):
                 'sale_type': product_data['sale_type']
             })
         self.update_sale_display()
+        self.product_code_input.setFocus() # Foco automático no input
+
+    def edit_item_quantity(self, model_index):
+        row = model_index.row()
+        item = self.current_sale_items[row]
+
+        if item['sale_type'] == 'weight':
+            QMessageBox.information(self, "Ação não permitida", "Não é possível alterar o peso de um item. Remova e adicione novamente.")
+            return
+
+        current_quantity = item['quantity']
+        new_quantity, ok = QInputDialog.getInt(self, "Alterar Quantidade", "Nova quantidade:", 
+                                                 int(current_quantity), 1, 9999)
+
+        if ok and new_quantity > 0:
+            item['quantity'] = Decimal(str(new_quantity))
+            item['total_price'] = item['quantity'] * item['unit_price']
+            self.update_sale_display()
 
     def update_sale_display(self):
         self.sale_items_table.setRowCount(0)
@@ -352,7 +398,7 @@ class SalesPage(QWidget):
                 # Enviar notificação (não bloqueante)
                 sales_notifier.notify_sale(sale_data, payment_details)
             except Exception as e:
-                print(f"Aviso: Erro ao enviar notificação de venda via WhatsApp: {e}")
+                logging.warning(f"Erro ao enviar notificação de venda via WhatsApp: {e}")
                 # Não exibir erro para usuário pois a venda foi salva com sucesso
 
             QMessageBox.information(self, "Venda Registrada", "Venda registrada com sucesso!")
@@ -413,11 +459,18 @@ class SalesPage(QWidget):
         final_weight = None
         if weight <= 0:
             # Se a balança não tem peso, pede manual
-            weight_val, ok = QInputDialog.getDouble(self, "Entrada de Peso Manual", 
-                                                    "Balança não disponível. Digite o peso em KG:",
-                                                    decimals=3, min=0.001)
-            if ok and weight_val > 0:
-                final_weight = Decimal(str(weight_val))
+            weight_str, ok = QInputDialog.getText(self, "Entrada de Peso Manual", 
+                                                    "Balança indisponível. Digite o peso em KG (ex: 1,250):")
+            if ok and weight_str:
+                try:
+                    # Garante que tanto vírgula quanto ponto sejam aceitos
+                    final_weight = Decimal(weight_str.replace(",", "."))
+                    if final_weight <= 0:
+                        QMessageBox.warning(self, "Peso Inválido", "O peso deve ser maior que zero.")
+                        return
+                except InvalidOperation:
+                    QMessageBox.warning(self, "Formato Inválido", "O peso digitado não é um número válido.")
+                    return
             else:
                 return # Usuário cancelou
         else:
@@ -511,4 +564,4 @@ class SalesPage(QWidget):
     def reload_data(self):
         self.reload_shortcuts()
         self.load_print_config()
-        print("Dados da página de vendas recarregados.")
+        logging.info("Dados da página de vendas recarregados.")

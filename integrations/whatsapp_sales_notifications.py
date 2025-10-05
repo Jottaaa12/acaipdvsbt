@@ -7,10 +7,12 @@ import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from decimal import Decimal
+import logging
 
 from .whatsapp_manager import WhatsAppManager
 from .whatsapp_config import get_whatsapp_config
 from utils import get_data_path
+import database as db
 
 class WhatsAppSalesNotifier:
     """
@@ -33,7 +35,7 @@ class WhatsAppSalesNotifier:
                 self.notification_settings = self._get_default_settings()
                 self._save_notification_settings()
         except Exception as e:
-            print(f"Erro ao carregar configurações de notificações: {e}")
+            logging.error(f"Erro ao carregar configurações de notificações: {e}", exc_info=True)
             self.notification_settings = self._get_default_settings()
 
     def _save_notification_settings(self):
@@ -42,7 +44,7 @@ class WhatsAppSalesNotifier:
             with open(self._notification_settings_path, 'w', encoding='utf-8') as f:
                 json.dump(self.notification_settings, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            print(f"Erro ao salvar configurações de notificações: {e}")
+            logging.error(f"Erro ao salvar configurações de notificações: {e}", exc_info=True)
 
     def _get_default_settings(self) -> Dict[str, Any]:
         """Retorna configurações padrão."""
@@ -70,6 +72,10 @@ class WhatsAppSalesNotifier:
             bool: True se notificou com sucesso
         """
         try:
+            if not db.are_notifications_globally_enabled():
+                logging.info("Envio de notificação de venda ignorado (desativado globalmente).")
+                return True
+
             # Verificar se notificações estão habilitadas
             if not self.notification_settings.get('enable_sale_notifications', False):
                 return True
@@ -100,9 +106,9 @@ class WhatsAppSalesNotifier:
                     if result.get('success'):
                         success_count += 1
                     else:
-                        print(f"Falha ao enviar notificação para {phone}: {result.get('error')}")
+                        logging.warning(f"Falha ao enviar notificação para {phone}: {result.get('error')}")
                 except Exception as e:
-                    print(f"Erro ao enviar notificação para {phone}: {e}")
+                    logging.error(f"Erro ao enviar notificação para {phone}: {e}", exc_info=True)
 
             # Registrar hora da última notificação
             self.notification_settings['last_notification_times']['sale'] = datetime.now().isoformat()
@@ -111,74 +117,121 @@ class WhatsAppSalesNotifier:
             return success_count > 0
 
         except Exception as e:
-            print(f"Erro ao notificar venda: {e}")
+            logging.error(f"Erro ao notificar venda: {e}", exc_info=True)
             return False
 
     def notify_cash_opening(self, user_name: str, initial_amount: float, summary_dict: Dict[str, Any]) -> bool:
-        """Notifica abertura de caixa recebendo dados brutos."""
+        """Notifica abertura de caixa."""
         try:
+            if not db.are_notifications_globally_enabled():
+                logging.info("Envio de notificação de abertura de caixa ignorado (desativado globalmente).")
+                return True
+
             if not self.notification_settings.get('enable_cash_notifications', False):
                 return True
 
-            # Construir mensagem completa da abertura de caixa
-            message = f"""✅ *CAIXA ABERTO*
-
-📅 Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-👤 Operador: {user_name}
-💰 Saldo Inicial: R$ {initial_amount:.2f}
-🆔 Sessão: #{summary_dict.get('id', 'nova_sessao')}
-
-Caixa aberto com sucesso no sistema PDV."""
+            message = (
+                f"✅ *CAIXA ABERTO* ✅\n\n"
+                f"*{self._get_store_name()}*\n\n"
+                f"🗓️ *Data/Hora:* {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+                f"👤 *Operador:* {user_name}\n"
+                f"💰 *Saldo Inicial:* R$ {initial_amount:.2f}\n"
+                f"🆔 *Sessão:* #{summary_dict.get('id', 'N/A')}\n\n"
+                f"_Uma nova sessão de caixa foi iniciada._"
+            )
 
             recipients = self._get_notification_recipients()
             success_count = 0
-
             for phone in recipients:
                 result = self.manager.send_message(phone, message, message_type='system_automatic')
                 if result.get('success'):
                     success_count += 1
-
             return success_count > 0
-
         except Exception as e:
-            print(f"Erro ao notificar abertura de caixa: {e}")
+            logging.error(f"Erro ao notificar abertura de caixa: {e}", exc_info=True)
             return False
 
-    def notify_cash_closing(self, user_name: str, initial_amount: float, summary_dict: Dict[str, Any]) -> bool:
-        """Notifica fechamento de caixa recebendo dados brutos."""
+    def notify_cash_closing(self, report: Dict[str, Any]) -> bool:
+        """Notifica fechamento de caixa com um relatório detalhado."""
         try:
+            if not db.are_notifications_globally_enabled():
+                logging.info("Envio de notificação de fechamento de caixa ignorado (desativado globalmente).")
+                return True
+
             if not self.notification_settings.get('enable_cash_notifications', False):
                 return True
 
-            # Construir mensagem completa do fechamento de caixa
-            difference = summary_dict.get('difference', 0)
-            difference_alert = ""
-            if difference != 0:
-                diff_symbol = "+" if difference > 0 else ""
-                difference_alert = f"\n⚠️ Diferença: {diff_symbol}R$ {abs(difference):.2f}"
+            session = report.get('session', {})
+            sales = report.get('sales', [])
+            movements = report.get('movements', [])
 
-            message = f"""❌ *CAIXA FECHADO*
+            # --- Formatação da Mensagem ---
+            user_name = session.get('username', 'N/A')
+            open_time = session.get('open_time').strftime('%d/%m/%Y %H:%M') if session.get('open_time') else 'N/A'
+            close_time = session.get('close_time').strftime('%H:%M') if session.get('close_time') else 'N/A'
+            
+            initial = Decimal(session.get('initial_amount', 0))
+            expected = Decimal(session.get('expected_amount', 0))
+            final = Decimal(session.get('final_amount', 0))
+            difference = Decimal(session.get('difference', 0))
 
-📅 Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-👤 Operador: {user_name}
-💰 Saldo Inicial: R$ {initial_amount:.2f}
-💰 Valor Contado: R$ {summary_dict.get('final_amount', 0):.2f}{difference_alert}
-🆔 Sessão: #{summary_dict.get('id', 0)}
+            # Resumo de Vendas
+            sales_summary = "*Resumo de Vendas:*\n"
+            if not sales:
+                sales_summary += "_Nenhuma venda registrada._\n"
+            else:
+                for sale in sales:
+                    sales_summary += f"  - {sale['payment_method']}: R$ {sale['total']:.2f} ({sale['count']} vendas)\n"
+            total_revenue = sum(Decimal(s['total']) for s in sales)
+            sales_summary += f"*Total em Vendas:* R$ {total_revenue:.2f}\n"
 
-Caixa fechado com sucesso no sistema PDV."""
+            # Movimentações de Caixa
+            movements_summary = "\n*Movimentações de Caixa:*\n"
+            suprimentos = [m for m in movements if m['type'] == 'suprimento']
+            sangrias = [m for m in movements if m['type'] == 'sangria']
+            
+            if not movements:
+                movements_summary += "_Nenhuma movimentação registrada._\n"
+            if suprimentos:
+                total_suprimentos = sum(Decimal(m['amount']) for m in suprimentos)
+                movements_summary += f"➕ *Total Suprimentos:* R$ {total_suprimentos:.2f}\n"
+            if sangrias:
+                total_sangrias = sum(Decimal(m['amount']) for m in sangrias)
+                movements_summary += f"➖ *Total Sangrias:* R$ {total_sangrias:.2f}\n"
+
+            # Fechamento e Diferença
+            diff_symbol = "⚠️" if difference != 0 else "✅"
+            diff_text = f"Sobra: +R$ {difference:.2f}" if difference > 0 else f"Falta: -R$ {abs(difference):.2f}" if difference < 0 else "Sem diferença"
+
+            # Observações
+            observations = session.get('observations')
+            obs_summary = f"\n*Observações:*\n_{observations}_\n" if observations else ""
+
+            message = (
+                f"❌ *FECHAMENTO DE CAIXA* ❌\n\n"
+                f"*{self._get_store_name()}*\n\n"
+                f"🆔 *Sessão:* #{session.get('id', 'N/A')}\n"
+                f"👤 *Operador:* {user_name}\n"
+                f"🕰️ *Período:* {open_time} às {close_time}\n\n"
+                f"{sales_summary}"
+                f"{movements_summary}\n"
+                f"*Resumo Financeiro:*\n"
+                f"  - Saldo Inicial: R$ {initial:.2f}\n"
+                f"  - Valor Esperado: R$ {expected:.2f}\n"
+                f"  - Valor Contado: R$ {final:.2f}\n"
+                f"{diff_symbol} *Diferença:* {diff_text}\n"
+                f"{obs_summary}"
+            )
 
             recipients = self._get_notification_recipients()
             success_count = 0
-
             for phone in recipients:
                 result = self.manager.send_message(phone, message, message_type='system_automatic')
                 if result.get('success'):
                     success_count += 1
-
             return success_count > 0
-
         except Exception as e:
-            print(f"Erro ao notificar fechamento de caixa: {e}")
+            logging.error(f"Erro ao notificar fechamento de caixa: {e}", exc_info=True)
             return False
 
     def notify_low_stock(self, product_data: Dict[str, Any]) -> bool:
@@ -205,7 +258,7 @@ Caixa fechado com sucesso no sistema PDV."""
             return success_count > 0
 
         except Exception as e:
-            print(f"Erro ao notificar estoque baixo: {e}")
+            logging.error(f"Erro ao notificar estoque baixo: {e}", exc_info=True)
             return False
 
     def _build_sale_message(self, sale_data: Dict[str, Any], payment_details: List[Dict[str, Any]]) -> Optional[str]:
@@ -256,7 +309,7 @@ Caixa fechado com sucesso no sistema PDV."""
             return message
 
         except Exception as e:
-            print(f"Erro ao construir mensagem de venda: {e}")
+            logging.error(f"Erro ao construir mensagem de venda: {e}", exc_info=True)
             return None
 
     def _get_notification_recipients(self) -> List[str]:
@@ -270,7 +323,7 @@ Caixa fechado com sucesso no sistema PDV."""
             if global_number and global_number not in recipients:
                 recipients.append(global_number)
         except Exception as e:
-            print(f"Erro ao obter destinatários globais: {e}")
+            logging.error(f"Erro ao obter destinatários globais: {e}", exc_info=True)
 
         return recipients
 
@@ -287,7 +340,7 @@ Caixa fechado com sucesso no sistema PDV."""
             return time_diff >= delay_seconds
 
         except Exception as e:
-            print(f"Erro ao verificar delay de notificação: {e}")
+            logging.error(f"Erro ao verificar delay de notificação: {e}", exc_info=True)
             return True
 
     def _get_store_name(self) -> str:
