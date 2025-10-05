@@ -27,6 +27,7 @@ class SalesPage(QWidget):
         self.printer_handler = printer_handler
         self.current_sale_items = []
         self.last_known_weight = 0.0
+        self.scale_error_count = 0
         
         # Estrutura para Vendas em Espera (Comandas)
         self.held_sales = {}
@@ -39,17 +40,36 @@ class SalesPage(QWidget):
 
     def _on_weight_updated(self, weight):
         """Slot para receber o peso da balança e atualizar a UI."""
+        self.scale_error_count = 0
         self.last_known_weight = weight
         if weight > 0:
             self.weight_label.setText(f"{weight:.3f} kg")
         else:
             self.weight_label.setText("0.000 kg")
+        
+        if hasattr(self, 'reconnect_scale_button'):
+            self.reconnect_scale_button.setVisible(False)
+            self.get_weight_button.setVisible(True)
 
     def _on_scale_error(self, error_message):
         """Slot para receber erros da balança."""
         self.last_known_weight = 0.0
         self.weight_label.setText("Erro kg")
         logging.warning(f"SalesPage Scale Error: {error_message}")
+
+        if hasattr(self, 'reconnect_scale_button'):
+            self.reconnect_scale_button.setVisible(True)
+            self.get_weight_button.setVisible(False)
+
+        self.scale_error_count += 1
+
+        # Exibe o aviso apenas se houver uma sessão de caixa aberta (em atendimento) e após 10 tentativas
+        if self.main_window and self.main_window.current_cash_session and self.scale_error_count >= 10:
+            QMessageBox.warning(self, "Problema com a Balança", 
+                "A balança pode estar desligada ou desconectada.\n\n"
+                "Por favor, verifique a conexão e tente novamente.\n"
+                "O sistema continuará tentando se reconectar.")
+            self.scale_error_count = 0 # Reseta o contador para evitar spam de mensagens
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -114,11 +134,17 @@ class SalesPage(QWidget):
         self.get_weight_button = QPushButton("Calcular Peso da Balança")
         self.get_weight_button.setObjectName("modern_button_secondary")
 
+        self.reconnect_scale_button = QPushButton("Reconectar Balança")
+        self.reconnect_scale_button.setToolTip("Tentar reconectar com a balança")
+        self.reconnect_scale_button.setObjectName("modern_button_error")
+        self.reconnect_scale_button.setVisible(False)
+
         sale_info_layout.addWidget(QLabel("Peso da Balança:"), 0, 0)
         sale_info_layout.addWidget(self.weight_label, 0, 1)
         sale_info_layout.addWidget(QLabel("Quantidade de Itens:"), 1, 0)
         sale_info_layout.addWidget(self.items_count_label, 1, 1)
-        sale_info_layout.addWidget(self.get_weight_button, 2, 0, 1, 2)
+        sale_info_layout.addWidget(self.get_weight_button, 2, 0, 1, 3)
+        sale_info_layout.addWidget(self.reconnect_scale_button, 2, 0, 1, 3)
         right_layout.addWidget(sale_info_group)
 
         right_layout.addStretch()
@@ -153,6 +179,11 @@ class SalesPage(QWidget):
         self.quick_kg_sale_button.setMinimumHeight(60)
         shortcuts_main_layout.addWidget(self.quick_kg_sale_button)
 
+        self.manual_value_button = QPushButton("Adicionar Valor Manual")
+        self.manual_value_button.setObjectName("modern_button_primary")
+        self.manual_value_button.setMinimumHeight(60)
+        shortcuts_main_layout.addWidget(self.manual_value_button)
+
         self.toggle_print_button = QPushButton("🖨️")
         self.toggle_print_button.setToolTip("Ativar/Desativar Impressão de Recibo")
         self.toggle_print_button.setCheckable(True)
@@ -171,18 +202,20 @@ class SalesPage(QWidget):
         self.load_print_config()
         
         # Conexões
-        self.product_code_input.returnPressed.connect(self.add_product_to_sale)
+        self.product_code_input.returnPressed.connect(self.handle_enter_pressed)
         self.search_product_button.clicked.connect(self.open_product_search_dialog)
         self.finish_sale_button.clicked.connect(self.open_payment_dialog)
         self.cancel_sale_button.clicked.connect(self.cancel_sale)
         self.get_weight_button.clicked.connect(self.get_weight_from_scale)
         self.quick_kg_sale_button.clicked.connect(self.quick_kg_sale)
+        self.manual_value_button.clicked.connect(self.manual_value_sale)
         self.price_config_button.clicked.connect(self.open_price_config_dialog)
         self.sale_items_table.itemSelectionChanged.connect(self.update_remove_button_state)
         self.remove_item_button.clicked.connect(self.remove_selected_item)
         self.toggle_print_button.clicked.connect(self.on_toggle_print_button_clicked)
         self.hold_sale_button.clicked.connect(self.hold_current_sale)
         self.resume_sale_button.clicked.connect(self.resume_held_sale)
+        self.reconnect_scale_button.clicked.connect(self.force_scale_reconnect)
 
         # --- CORREÇÃO E ADIÇÃO DE ATALHOS GLOBAIS ---
         QShortcut(QKeySequence("F1"), self).activated.connect(self.open_payment_dialog)
@@ -239,6 +272,15 @@ class SalesPage(QWidget):
         self.update_print_button_style()
 
     # --- Funções de Venda e Itens ---
+    def handle_enter_pressed(self):
+        """Decide a ação com base no conteúdo do campo de código de produto."""
+        if not self.product_code_input.text().strip():
+            # Se o campo estiver vazio, executa a venda rápida por KG
+            self.quick_kg_sale()
+        else:
+            # Caso contrário, adiciona o produto pelo código
+            self.add_product_to_sale()
+
     def reload_shortcuts(self):
         while self.dynamic_shortcuts_layout.count():
             child = self.dynamic_shortcuts_layout.takeAt(0)
@@ -367,11 +409,13 @@ class SalesPage(QWidget):
         dialog = PaymentDialog(total_amount, self)
         
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_data:
-            payments = dialog.result_data['payments']
+            result = dialog.result_data
+            payments = result['payments']
+            change_amount = result['change']
 
-            # Send payments list directly (new format) instead of concatenated string
+            # Envia a lista de pagamentos e o troco
             sale_success, sale_message_or_id = db.register_sale_with_user(
-                total_amount, payments, self.current_sale_items,
+                total_amount, payments, self.current_sale_items, change_amount,
                 user_id=self.main_window.current_user["id"],
                 cash_session_id=self.main_window.current_cash_session["id"]
             )
@@ -396,7 +440,7 @@ class SalesPage(QWidget):
                 payment_details = [{'method': p['method'], 'amount': float(p['amount'])} for p in payments]
 
                 # Enviar notificação (não bloqueante)
-                sales_notifier.notify_sale(sale_data, payment_details)
+                sales_notifier.notify_sale(sale_data, payment_details, float(change_amount))
             except Exception as e:
                 logging.warning(f"Erro ao enviar notificação de venda via WhatsApp: {e}")
                 # Não exibir erro para usuário pois a venda foi salva com sucesso
@@ -480,6 +524,37 @@ class SalesPage(QWidget):
             self.product_code_input.setText("9999")
             self.add_product_to_sale(weight_from_scale=final_weight)
 
+    def manual_value_sale(self):
+        """Adiciona um produto genérico com base em um valor monetário informado."""
+        if not self.is_cash_session_open(): return
+
+        # Pede ao usuário para inserir o valor desejado
+        value, ok = QInputDialog.getDouble(self, "Adicionar Valor Manual", 
+                                             "Digite o valor a ser adicionado (R$):", 
+                                             0.0, 0.01, 100000, 2)
+
+        if ok and value > 0:
+            # Busca o produto genérico (código 9999) para obter o preço por KG
+            generic_product = db.get_product_by_barcode("9999")
+            if not generic_product or 'price' not in generic_product:
+                QMessageBox.critical(self, "Erro de Configuração", 
+                                     "O produto genérico (código 9999) não está configurado corretamente.")
+                return
+
+            price_per_kg = Decimal(str(generic_product['price']))
+            if price_per_kg <= 0:
+                QMessageBox.critical(self, "Erro de Configuração", 
+                                     "O preço por KG do produto genérico deve ser maior que zero.")
+                return
+
+            # Calcula o peso equivalente
+            value_decimal = Decimal(str(value))
+            equivalent_weight = value_decimal / price_per_kg
+
+            # Adiciona o produto à venda com o peso calculado
+            self.product_code_input.setText("9999")
+            self.add_product_to_sale(weight_from_scale=equivalent_weight)
+
     def open_price_config_dialog(self):
         generic_product = db.get_product_by_barcode("9999")
         if not generic_product: return
@@ -545,6 +620,13 @@ class SalesPage(QWidget):
             self.current_sale_items = self.held_sales[identifier]
             del self.held_sales[identifier]
             self.update_sale_display()
+
+    def force_scale_reconnect(self):
+        """Força a tentativa de reconexão da balança."""
+        logging.info("Botão de reconexão manual da balança pressionado.")
+        self.weight_label.setText("Reconectando...")
+        # Reconfigura o handler com as mesmas configurações para forçar um reinício
+        self.scale_handler.reconfigure(self.scale_handler.mode, **self.scale_handler.config)
 
     # --- Funções de Validação e Recarga ---
     def is_cash_session_open(self):

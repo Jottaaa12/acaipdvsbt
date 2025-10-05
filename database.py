@@ -125,6 +125,7 @@ def create_tables():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_amount INTEGER NOT NULL,
+            change_amount INTEGER NOT NULL DEFAULT 0,
             user_id INTEGER,
             cash_session_id INTEGER,
             training_mode BOOLEAN DEFAULT 0,
@@ -847,13 +848,22 @@ def close_cash_session(session_id, user_id, final_amount, cash_counts, observati
         if not session_cents:
             return False, "Sessão não encontrada"
 
-        # Soma vendas em dinheiro usando a nova tabela sale_payments (valores já em centavos no DB)
-        cash_sales_cents = cursor.execute('''
+        # Soma dos pagamentos em dinheiro (valores já em centavos no DB)
+        total_cash_payments_cents = cursor.execute('''
             SELECT COALESCE(SUM(sp.amount), 0) as total
             FROM sale_payments sp
             JOIN sales s ON sp.sale_id = s.id
             WHERE s.cash_session_id = ? AND sp.payment_method = 'Dinheiro' AND s.training_mode = 0
         ''', (session_id,)).fetchone()['total']
+
+        # Soma do troco (valores já em centavos no DB)
+        total_change_cents = cursor.execute('''
+            SELECT COALESCE(SUM(s.change_amount), 0) as total
+            FROM sales s
+            WHERE s.cash_session_id = ? AND s.training_mode = 0
+        ''', (session_id,)).fetchone()['total']
+
+        cash_sales_cents = total_cash_payments_cents - total_change_cents
 
         # Soma movimentos (valores já em centavos no DB)
         movements_cents = cursor.execute('''
@@ -1103,17 +1113,19 @@ def get_audit_log(limit=100, user_id=None, action=None):
 
 # --- Funções de Vendas Modificadas ---
 
-def register_sale_with_user(total_amount, payment_method, items, user_id=None, cash_session_id=None, training_mode=False):
+def register_sale_with_user(total_amount, payments, items, change_amount, user_id=None, cash_session_id=None, training_mode=False):
     """Registra venda com informações de usuário e sessão."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Garante que o valor final seja um inteiro
+        # Garante que os valores finais sejam inteiros
         total_amount_cents = int(to_cents(total_amount))
+        change_amount_cents = int(to_cents(change_amount))
+        
         cursor.execute('''
-            INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode)
-            VALUES (?, ?, ?, ?)
-        ''', (total_amount_cents, user_id, cash_session_id, training_mode))
+            INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode, change_amount)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (total_amount_cents, user_id, cash_session_id, training_mode, change_amount_cents))
 
         sale_id = cursor.lastrowid
 
@@ -1137,29 +1149,8 @@ def register_sale_with_user(total_amount, payment_method, items, user_id=None, c
 
                 cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (float(item['quantity']), item['id']))
 
-        # Se payment_method for uma string (formato antigo), converte para lista de pagamentos
-        if isinstance(payment_method, str):
-            # Tenta fazer o parsing da string para extrair os pagamentos
-            import re
-            payment_pattern = r'(\w+):\s*R\$\s*([\d,]+)'
-            matches = re.findall(payment_pattern, payment_method)
-
-            if matches:
-                # Se conseguiu extrair pagamentos da string, usa eles
-                payments_list = []
-                for method, amount_str in matches:
-                    try:
-                        amount_decimal = Decimal(amount_str.replace(',', '.'))
-                        payments_list.append({'method': method, 'amount': amount_decimal})
-                    except:
-                        # Se não conseguir fazer o parsing, usa o método antigo
-                        payments_list = [{'method': payment_method, 'amount': total_amount}]
-            else:
-                # Se não conseguiu extrair, usa o método antigo
-                payments_list = [{'method': payment_method, 'amount': total_amount}]
-        else:
-            # Se já for uma lista (novo formato), usa diretamente
-            payments_list = payment_method
+        # Se já for uma lista (novo formato), usa diretamente
+        payments_list = payments
 
         # Insere os pagamentos individuais na tabela sale_payments
         for payment in payments_list:

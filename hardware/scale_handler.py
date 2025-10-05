@@ -46,58 +46,63 @@ class RealScaleWorker(AbstractScaleWorker):
 
     def run(self):
         logging.info(f"Balança Real: Iniciando thread de leitura na porta {self.port}.")
-        try:
-            self.serial_connection = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                bytesize=self.bytesize,
-                parity=self.parity,
-                stopbits=self.stopbits,
-                timeout=1
-            )
-            logging.info("Balança Real: Conexão serial estabelecida.")
-        except serial.SerialException as e:
-            error_message = f"Balança Real: Erro ao abrir a porta serial {self.port}: {e}"
-            self.error_occurred.emit(error_message)
-            logging.error(error_message, exc_info=True)
-            return
-
-        while self.is_running and self.serial_connection.isOpen():
+        
+        while self.is_running:
             try:
-                # Lê o que estiver disponível e adiciona ao buffer
+                # Etapa 1: Garantir que a conexão esteja aberta
+                if self.serial_connection is None or not self.serial_connection.isOpen():
+                    if self.serial_connection:
+                        self.serial_connection.close() # Garante que a conexão anterior seja fechada
+
+                    self.serial_connection = serial.Serial(
+                        port=self.port,
+                        baudrate=self.baudrate,
+                        bytesize=self.bytesize,
+                        parity=self.parity,
+                        stopbits=self.stopbits,
+                        timeout=1
+                    )
+                    logging.info("Balança Real: Conexão serial estabelecida.")
+
+                # Etapa 2: Ler e processar dados
                 data_received = self.serial_connection.read_all().decode('ascii', errors='ignore')
                 if data_received:
                     self.buffer += data_received
 
-                # Tenta encontrar o último número válido no buffer
-                # A expressão regular busca por padrões como 0.123, 1.234, 12.345, etc.
                 matches = list(re.finditer(r'\d+\.\d{3}', self.buffer))
                 if matches:
                     last_match = matches[-1]
                     weight_str = last_match.group(0)
                     
-                    # Converte e emite o peso
                     weight_kg = float(weight_str)
                     self.weight_updated.emit(weight_kg)
 
-                    # Limpa o buffer, mantendo apenas o que veio depois do último peso lido
                     self.buffer = self.buffer[last_match.end():]
 
             except serial.SerialException as e:
+                # Etapa 3: Lidar com erros de comunicação e tentar reconectar
+                if self.serial_connection and self.serial_connection.isOpen():
+                    self.serial_connection.close()
+                
                 error_message = f"Balança Real: Erro de comunicação serial: {e}"
                 self.error_occurred.emit(error_message)
-                logging.error(error_message, exc_info=True)
-                self.is_running = False # Para a thread em caso de erro grave
+                logging.warning(f"{error_message}. Tentando reconectar em 5 segundos...")
+                
+                # Aguarda 5 segundos antes de tentar reconectar no próximo loop
+                time.sleep(5)
+                continue
+
             except ValueError:
-                # Se a conversão falhar, limpa o buffer para evitar loops de erro
-                self.buffer = ""
+                self.buffer = "" # Limpa o buffer em caso de dado malformado
                 pass
+            
             except Exception as e:
                 error_message = f"Balança Real: Erro inesperado na leitura: {e}"
                 self.error_occurred.emit(error_message)
                 logging.error(error_message, exc_info=True)
                 time.sleep(2) # Espera antes de tentar novamente
 
+        # Etapa 4: Limpeza ao finalizar a thread
         if self.serial_connection and self.serial_connection.isOpen():
             self.serial_connection.close()
         logging.info("Balança Real: Thread de leitura finalizada.")

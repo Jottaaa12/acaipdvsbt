@@ -129,7 +129,7 @@ class PDVApplication:
             db.create_tables()
             
             logging.info("Verificando a necessidade de migração do banco de dados...")
-            if migration.check_migration_needed():
+            if migration.is_any_migration_needed():
                 logging.warning("Migração do banco de dados necessária.")
                 msg_box = QMessageBox()
                 msg_box.setIcon(QMessageBox.Icon.Information)
@@ -140,16 +140,11 @@ class PDVApplication:
                 msg_box.show()
                 self.app.processEvents()
 
-                success = migration.migrate_database()
+                migration.run_all_migrations()
                 msg_box.close()
 
-                if success:
-                    QMessageBox.information(None, "Atualização Concluída", "O banco de dados foi atualizado com sucesso!")
-                    logging.info("Migração do banco de dados concluída com sucesso.")
-                else:
-                    QMessageBox.critical(None, "Erro de Migração", "Falha ao atualizar o banco de dados. A aplicação será encerrada.")
-                    logging.error("Falha na migração do banco de dados.")
-                    sys.exit(1)
+                QMessageBox.information(None, "Atualização Concluída", "O banco de dados foi atualizado com sucesso!")
+                logging.info("Migração do banco de dados concluída com sucesso.")
             else:
                 logging.info("Banco de dados já está atualizado.")
 

@@ -174,6 +174,31 @@ def parse_payment_string(payment_string, total_amount):
 
     return payments_list
 
+def is_any_migration_needed():
+    """Verifica se QUALQUER migração pendente é necessária."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Verifica se a tabela sales existe
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sales'")
+        if not cursor.fetchone():
+            return False # Tabela não existe, será criada do zero, sem migração
+
+        cursor.execute("PRAGMA table_info(sales)")
+        columns = [col['name'] for col in cursor.fetchall()]
+        
+        # Verificação 1: Coluna payment_method (precisa ser removida)
+        if 'payment_method' in columns:
+            return True
+
+        # Verificação 2: Coluna change_amount (precisa ser adicionada)
+        if 'change_amount' not in columns:
+            return True
+
+        return False
+    finally:
+        conn.close()
+
 def check_migration_needed():
     """Verifica se a migração é necessária."""
     conn = get_db_connection()
@@ -194,17 +219,45 @@ def check_migration_needed():
     finally:
         conn.close()
 
-if __name__ == '__main__':
-    logging.info("🔧 Verificando necessidade de migração...")
-
-    if check_migration_needed():
-        logging.info("📋 Migração necessária. Executando...")
-        success = migrate_database()
-
-        if success:
-            logging.info("✅ Migração executada com sucesso!")
-            logging.info("🎉 O sistema agora suporta múltiplos pagamentos por venda!")
+def add_change_amount_column():
+    """MIGRATION 2: Adiciona a coluna 'change_amount' à tabela 'sales'."""
+    logging.info("Executando migração: Adicionar coluna 'change_amount'...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(sales)")
+        columns = [column['name'] for column in cursor.fetchall()]
+        if 'change_amount' not in columns:
+            cursor.execute("ALTER TABLE sales ADD COLUMN change_amount INTEGER NOT NULL DEFAULT 0")
+            logging.info("   ✅ Coluna 'change_amount' adicionada à tabela 'sales'.")
         else:
-            logging.error("❌ Falha na migração. Verifique os logs de erro acima.")
+            logging.info("   ✅ Coluna 'change_amount' já existe. Nenhuma ação necessária.")
+    except sqlite3.Error as e:
+        logging.error(f"   ❌ Erro ao adicionar coluna 'change_amount': {e}")
+    finally:
+        conn.commit()
+        conn.close()
+
+def run_all_migrations():
+    """Executa todas as migrações de banco de dados em sequência."""
+    logging.info("🔧 Verificando necessidade de todas as migrações...")
+    
+    # Migração 1: Múltiplos pagamentos
+    if check_migration_needed():
+        logging.info("   📋 Migração de múltiplos pagamentos necessária. Executando...")
+        success = migrate_database()
+        if success:
+            logging.info("   ✅ Migração de múltiplos pagamentos executada com sucesso!")
+        else:
+            logging.error("   ❌ Falha na migração de múltiplos pagamentos.")
     else:
-        logging.info("✅ Nenhuma migração necessária. O banco já está atualizado.")
+        logging.info("   ✅ Nenhuma migração de múltiplos pagamentos necessária.")
+
+    # Migração 2: Coluna de troco
+    add_change_amount_column()
+
+    logging.info("🎉 Processo de migração finalizado.")
+
+
+if __name__ == '__main__':
+    run_all_migrations()

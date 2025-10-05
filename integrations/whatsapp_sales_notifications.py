@@ -60,13 +60,14 @@ class WhatsAppSalesNotifier:
             'last_notification_times': {}
         }
 
-    def notify_sale(self, sale_data: Dict[str, Any], payment_details: List[Dict[str, Any]]) -> bool:
+    def notify_sale(self, sale_data: Dict[str, Any], payment_details: List[Dict[str, Any]], change_amount: float) -> bool:
         """
         Notifica uma venda realizada.
 
         Args:
             sale_data: Dados da venda (id, customer_name, total_amount, etc.)
             payment_details: Lista de pagamentos com método e valor
+            change_amount: Valor do troco
 
         Returns:
             bool: True se notificou com sucesso
@@ -91,7 +92,7 @@ class WhatsAppSalesNotifier:
                 return True
 
             # Construir mensagem detalhada
-            message = self._build_sale_message(sale_data, payment_details)
+            message = self._build_sale_message(sale_data, payment_details, change_amount)
 
             if not message:
                 return False
@@ -261,30 +262,28 @@ class WhatsAppSalesNotifier:
             logging.error(f"Erro ao notificar estoque baixo: {e}", exc_info=True)
             return False
 
-    def _build_sale_message(self, sale_data: Dict[str, Any], payment_details: List[Dict[str, Any]]) -> Optional[str]:
+    def _build_sale_message(self, sale_data: Dict[str, Any], payment_details: List[Dict[str, Any]], change_amount: float) -> Optional[str]:
         """Constrói mensagem detalhada de venda."""
         try:
-            # Agrupar pagamentos por método
-            payment_summary = {}
-            for payment in payment_details:
-                method = payment['method']
-                amount = float(payment['amount'])
-                payment_summary[method] = payment_summary.get(method, 0) + amount
+            total_paid = sum(float(p['amount']) for p in payment_details)
 
             # Construir detalhamento dos pagamentos
             payment_breakdown = ""
             if self.notification_settings.get('detailed_payment_breakdown', True):
-                payment_breakdown = "Formas de Pagamento:\n"
                 payment_icons = {
-                    'Dinheiro': '💵',
-                    'PIX': '📱',
-                    'Débito': '💳',
-                    'Crédito': '💳',
+                    'Dinheiro': '💵', 'PIX': '📱', 'Débito': '💳', 'Crédito': '💳',
                 }
-
-                for method, total in payment_summary.items():
+                for payment in payment_details:
+                    method = payment['method']
+                    amount = float(payment['amount'])
                     icon = payment_icons.get(method, '💰')
-                    payment_breakdown += f"  {icon} {method}: R$ {total:.2f}\n"
+                    payment_breakdown += f"  {icon} {method}: R$ {amount:.2f}\n"
+            
+            # Adicionar informações de total pago e troco
+            payment_breakdown += f"--------------------\n"
+            payment_breakdown += f"  Total Pago: R$ {total_paid:.2f}\n"
+            if change_amount > 0:
+                payment_breakdown += f"  Troco: R$ {change_amount:.2f}\n"
 
             payment_breakdown = payment_breakdown.rstrip()
 
