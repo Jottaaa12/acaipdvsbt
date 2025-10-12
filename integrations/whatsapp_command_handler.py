@@ -33,11 +33,11 @@ class CommandHandler:
         self.authorized_managers = normalized_managers
         logging.info(f"Gerentes autorizados (normalizados) no WhatsApp: {self.authorized_managers}")
 
-    def process_command(self, command_data: dict, manager) -> tuple[str | None, str | None]:
+    def process_command(self, command_data: dict, manager):
         """
         Processa um comando, registra a auditoria e retorna a resposta e o destinatário.
         Recebe a instância do manager para acessar métodos de status e logging.
-        Retorna: (response_text, recipient_phone) ou (None, None)
+        Retorna: Uma lista de tuplas (response_text, recipient_phone) ou None.
         """
         sender_phone_raw = command_data.get('sender')
         command_text = command_data.get('text', '').strip()
@@ -46,7 +46,7 @@ class CommandHandler:
         validation = self.config.validate_phone(sender_phone_raw)
         if not validation['valid']:
             logging.warning(f"Número de remetente com formato inválido foi ignorado: {sender_phone_raw}")
-            return None, None
+            return None
         
         sender_phone = validation['normalized']
 
@@ -55,7 +55,7 @@ class CommandHandler:
             logging.warning(f"Comando de número não autorizado foi ignorado: {sender_phone} (Lista de autorizados: {self.authorized_managers})")
             # Log de tentativa de comando não autorizado
             manager.logger.log_command(sender=sender_phone, command=command_text, success=False, response_preview="Acesso negado")
-            return None, None
+            return None
 
         parts = command_text.split()
         command = parts[0].lower()

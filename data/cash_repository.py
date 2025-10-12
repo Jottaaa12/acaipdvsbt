@@ -252,8 +252,7 @@ def get_cash_session_report(session_id):
             count['total_value'] = to_reais(count['total_value'])
         counts_list.append(count)
 
-    conn.close()
-    
+    conn.close()    
     total_revenue = sum(item['total'] for item in sales_list)
     total_sangria = sum(m['amount'] for m in movements_list if m['type'] == 'sangria')
     total_weight_kg = get_total_weight_by_cash_session(session_id)
@@ -384,3 +383,56 @@ def get_cash_session_history(start_date, end_date, operator_id=None):
         history.append(session)
         
     return history
+
+def get_current_cash_status():
+    """
+    Calcula e retorna o status detalhado da sessão de caixa atual, se houver uma aberta.
+    """
+    session = get_current_cash_session()
+    if not session:
+        return {'status': 'FECHADO'}
+
+    conn = get_db_connection()
+    session_id = session['id']
+
+    # Soma dos pagamentos em dinheiro (valores já em centavos no DB)
+    total_cash_payments_cents = conn.execute('''
+        SELECT COALESCE(SUM(sp.amount), 0) as total
+        FROM sale_payments sp
+        JOIN sales s ON sp.sale_id = s.id
+        WHERE s.cash_session_id = ? AND sp.payment_method = 'Dinheiro' AND s.training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
+    # Soma do troco (valores já em centavos no DB)
+    total_change_cents = conn.execute('''
+        SELECT COALESCE(SUM(s.change_amount), 0) as total
+        FROM sales s
+        WHERE s.cash_session_id = ? AND s.training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
+    cash_sales_cents = total_cash_payments_cents - total_change_cents
+
+    # Soma movimentos (valores já em centavos no DB)
+    movements_cents = conn.execute('''
+        SELECT 
+            COALESCE(SUM(CASE WHEN type = 'suprimento' THEN amount ELSE 0 END), 0) as suprimentos,
+            COALESCE(SUM(CASE WHEN type = 'sangria' THEN amount ELSE 0 END), 0) as sangrias
+        FROM cash_movements 
+        WHERE session_id = ?
+    ''', (session_id,)).fetchone()
+    
+    conn.close()
+
+    initial_amount_cents = to_cents(Decimal(str(session['initial_amount'])))
+    current_balance_cents = initial_amount_cents + cash_sales_cents + movements_cents['suprimentos'] - movements_cents['sangrias']
+
+    return {
+        'status': 'ABERTO',
+        'open_time': session['open_time'],
+        'username': session['username'],
+        'initial_amount': session['initial_amount'],
+        'suprimentos': to_reais(movements_cents['suprimentos']),
+        'sangrias': to_reais(movements_cents['sangrias']),
+        'cash_sales': to_reais(cash_sales_cents),
+        'current_balance': to_reais(current_balance_cents)
+    }

@@ -224,13 +224,13 @@ def get_credit_status_summary():
     overdue_count = conn.execute("""
         SELECT COUNT(id) FROM credit_sales
         WHERE status IN ('pending', 'partially_paid') AND due_date < DATE('now')
-    """).fetchone()[0]
+    """, ).fetchone()[0]
     
     # Total de contas pendentes (incluindo as vencidas)
     pending_count = conn.execute("""
         SELECT COUNT(id) FROM credit_sales
         WHERE status IN ('pending', 'partially_paid')
-    """).fetchone()[0]
+    """, ).fetchone()[0]
     
     conn.close()
     return {
@@ -262,6 +262,34 @@ def add_credit_payment(credit_sale_id, amount_paid, user_id, payment_method):
         conn.commit()
         log_audit(user_id, 'ADD_CREDIT_PAYMENT', 'credit_payments', cursor.lastrowid, new_values=f"Valor: {amount_paid}")
         return True, "Pagamento registrado com sucesso."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Erro de banco de dados: {e}"
+    finally:
+        conn.close()
+
+def update_credit_sale_status(credit_sale_id, new_status, user_id):
+    """Atualiza o status de uma venda a crédito (ex: para 'cancelled')."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    valid_statuses = ['pending', 'partially_paid', 'paid', 'cancelled']
+    if new_status not in valid_statuses:
+        return False, f"Status '{new_status}' inválido."
+
+    try:
+        cursor.execute(
+            'UPDATE credit_sales SET status = ? WHERE id = ?',
+            (new_status, credit_sale_id)
+        )
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            log_audit(user_id, 'UPDATE_CREDIT_STATUS', 'credit_sales', credit_sale_id, new_values=f"Novo status: {new_status}")
+            return True, "Status da venda a prazo atualizado com sucesso."
+        else:
+            return False, "Venda a prazo não encontrada."
+            
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Erro de banco de dados: {e}"

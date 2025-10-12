@@ -10,7 +10,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from config_manager import ConfigManager
 from ui.theme import ModernTheme
-from data.settings_repository import are_notifications_globally_enabled, set_global_notification_status
+from data.settings_repository import (
+    are_notifications_globally_enabled, 
+    set_global_notification_status,
+    load_setting,
+    save_setting
+)
 
 class QRCodeDialog(QDialog):
     """Um diálogo modal simples para exibir o QR Code do WhatsApp de forma clara."""
@@ -79,7 +84,7 @@ class WhatsAppWidget(QWidget):
         main_layout.addWidget(tab_widget)
 
         connection_tab = self._create_whatsapp_connection_tab()
-        tab_widget.addTab(connection_tab, "Conexão")
+        tab_widget.addTab(connection_tab, "Conexão e Gerentes")
 
         notifications_tab = self.create_notifications_tab()
         tab_widget.addTab(notifications_tab, "Notificações")
@@ -93,7 +98,8 @@ class WhatsAppWidget(QWidget):
             "3. Toque no ícone de menu (⋮) → 'Aparelhos conectados' → 'Conectar um aparelho'.<br>"
             "4. Escaneie o QR Code mostrado nesta tela.<br>"
             "5. Aguarde a confirmação de conexão estabelecida.<br><br>"
-            "<b>Dica:</b> Após conectar, a sessão será salva. Você não precisará ler o QR Code novamente, a menos que clique em <b>Desconectar</b>."
+            "<b>Gerentes Autorizados:</b><br>"
+            "Os números adicionados na lista de gerentes terão permissão para executar comandos no sistema, como <i>/caixa status</i>, <i>/vendas</i>, etc."
         )
         instructions.setWordWrap(True)
         instructions.setStyleSheet("font-size: 13px; line-height: 1.5;")
@@ -152,37 +158,52 @@ class WhatsAppWidget(QWidget):
         status_layout.addStretch()
         layout.addWidget(status_group)
 
-        actions_group = QGroupBox("Ações e Testes")
-        actions_layout = QVBoxLayout(actions_group)
-        actions_layout.setSpacing(15)
-
-        buttons_layout = QHBoxLayout()
+        actions_group = QGroupBox("Ações de Conexão")
+        actions_layout = QHBoxLayout(actions_group)
         self.whatsapp_connect_button = QPushButton("Conectar")
         self.whatsapp_connect_button.setMinimumHeight(40)
         self.whatsapp_connect_button.clicked.connect(self._toggle_whatsapp_connection)
+        actions_layout.addWidget(self.whatsapp_connect_button)
+        actions_layout.addStretch()
+        layout.addWidget(actions_group)
+
+        # NEW MANAGER GROUP
+        managers_group = QGroupBox("Gerentes Autorizados para Comandos")
+        managers_layout = QVBoxLayout(managers_group)
+        managers_layout.setSpacing(10)
+
+        managers_info = QLabel("Os números nesta lista podem executar comandos como /caixa, /vendas, etc.")
+        managers_info.setWordWrap(True)
+        managers_layout.addWidget(managers_info)
+
+        self.managers_list_widget = QListWidget()
+        managers_layout.addWidget(self.managers_list_widget)
+
+        add_manager_layout = QHBoxLayout()
+        self.new_manager_input = QLineEdit(placeholderText="Novo número com DDI (Ex: 5511912345678)")
+        self.add_manager_button = QPushButton("Adicionar")
+        self.remove_manager_button = QPushButton("Remover Selecionado")
+        add_manager_layout.addWidget(self.new_manager_input, 1)
+        add_manager_layout.addWidget(self.add_manager_button)
+        add_manager_layout.addWidget(self.remove_manager_button)
+        managers_layout.addLayout(add_manager_layout)
+
+        self.save_managers_button = QPushButton("Salvar Lista de Gerentes")
+        self.save_managers_button.setMinimumHeight(40)
+        managers_layout.addWidget(self.save_managers_button)
         
+        layout.addWidget(managers_group)
+
+        # Test message group
+        test_group = QGroupBox("Teste de Conexão")
+        test_layout = QVBoxLayout(test_group)
         self.send_test_button = QPushButton("Enviar Mensagem de Teste")
         self.send_test_button.setMinimumHeight(40)
-        self.send_test_button.clicked.connect(self.send_test_whatsapp_message)
-        
-        buttons_layout.addWidget(self.whatsapp_connect_button)
-        buttons_layout.addWidget(self.send_test_button)
-        buttons_layout.addStretch()
-        actions_layout.addLayout(buttons_layout)
-
-        test_number_widget = QWidget()
-        test_number_layout = QHBoxLayout(test_number_widget)
-        test_number_layout.setContentsMargins(0,0,0,0)
-        test_number_label = QLabel("Nº para Notificações (Gerente):")
-        self.whatsapp_phone_input = QLineEdit(placeholderText="Ex: 5511912345678")
-        self.save_whatsapp_button = QPushButton("Salvar")
-        self.save_whatsapp_button.clicked.connect(self.save_whatsapp_config)
-        test_number_layout.addWidget(test_number_label)
-        test_number_layout.addWidget(self.whatsapp_phone_input, 1)
-        test_number_layout.addWidget(self.save_whatsapp_button)
-        actions_layout.addWidget(test_number_widget)
-        
-        layout.addWidget(actions_group)
+        self.test_number_input = QLineEdit(placeholderText="Nº para receber a mensagem de teste")
+        test_layout.addWidget(QLabel("Enviar um teste para confirmar que a conexão está funcionando:"))
+        test_layout.addWidget(self.test_number_input)
+        test_layout.addWidget(self.send_test_button)
+        layout.addWidget(test_group)
 
         qr_info_group = QGroupBox("QR Code")
         qr_info_layout = QVBoxLayout(qr_info_group)
@@ -193,6 +214,12 @@ class WhatsAppWidget(QWidget):
         layout.addWidget(qr_info_group)
         
         layout.addStretch()
+
+        # Connect new buttons
+        self.add_manager_button.clicked.connect(self._add_manager)
+        self.remove_manager_button.clicked.connect(self._remove_manager)
+        self.save_managers_button.clicked.connect(self._save_managers)
+        self.send_test_button.clicked.connect(self.send_test_whatsapp_message)
         
         return connection_tab
 
@@ -292,25 +319,69 @@ class WhatsAppWidget(QWidget):
         if not manager.is_ready:
             QMessageBox.warning(self, "WhatsApp Não Conectado", "Por favor, conecte o WhatsApp antes de enviar uma mensagem de teste.")
             return
-        notification_number = self.whatsapp_phone_input.text().strip()
-        if not notification_number:
-            QMessageBox.warning(self, "Número Não Configurado", "Por favor, insira e salve um número de telefone para enviar a mensagem de teste.")
+        
+        test_number = self.test_number_input.text().strip()
+        if not test_number:
+            QMessageBox.warning(self, "Número Não Configurado", "Por favor, insira um número de telefone para enviar a mensagem de teste.")
             return
+            
         test_message = "✅ Mensagem de teste do sistema PDV Moderno. A integração com o WhatsApp está funcionando!"
-        result = manager.send_message(notification_number, test_message)
+        result = manager.send_message(test_number, test_message)
+        
         if result.get('success'):
-            QMessageBox.information(self, "Sucesso", f"Mensagem de teste enviada para {notification_number}.")
+            QMessageBox.information(self, "Sucesso", f"Mensagem de teste enviada para {test_number}.")
         else:
             QMessageBox.critical(self, "Falha", f"Não foi possível enviar a mensagem de teste.\n\nErro: {result.get('error')}")
 
     def load_whatsapp_config_to_ui(self):
+        # Load authorized managers
+        self.managers_list_widget.clear()
+        numbers_str = load_setting('whatsapp_manager_numbers', '')
+        if numbers_str:
+            numbers = [num.strip() for num in numbers_str.split(',') if num.strip()]
+            self.managers_list_widget.addItems(numbers)
+        
+        # Load the test number from the old config for convenience, if it exists
         whatsapp_config = self.config_manager.get_section('whatsapp')
-        self.whatsapp_phone_input.setText(whatsapp_config.get('notification_number', ''))
+        self.test_number_input.setText(whatsapp_config.get('notification_number', ''))
 
-    def save_whatsapp_config(self):
-        whatsapp_data = {'notification_number': self.whatsapp_phone_input.text()}
-        self.config_manager.update_section('whatsapp', whatsapp_data)
-        QMessageBox.information(self, "Sucesso", "Configurações do WhatsApp salvas!")
+    def _add_manager(self):
+        number = self.new_manager_input.text().strip()
+        if not number:
+            QMessageBox.warning(self, "Campo Vazio", "Digite um número de telefone.")
+            return
+        
+        # Simple validation to avoid duplicates
+        items = [self.managers_list_widget.item(i).text() for i in range(self.managers_list_widget.count())]
+        if number in items:
+            QMessageBox.warning(self, "Número Duplicado", "Este número já está na lista.")
+            return
+            
+        self.managers_list_widget.addItem(number)
+        self.new_manager_input.clear()
+
+    def _remove_manager(self):
+        current_item = self.managers_list_widget.currentItem()
+        if current_item:
+            self.managers_list_widget.takeItem(self.managers_list_widget.row(current_item))
+        else:
+            QMessageBox.warning(self, "Nenhum Selecionado", "Selecione um número da lista para remover.")
+
+    def _save_managers(self):
+        try:
+            numbers = [self.managers_list_widget.item(i).text() for i in range(self.managers_list_widget.count())]
+            numbers_str = ",".join(numbers)
+            save_setting('whatsapp_manager_numbers', numbers_str)
+
+            # Update manager in real-time
+            from integrations.whatsapp_manager import WhatsAppManager
+            manager = WhatsAppManager.get_instance()
+            manager.update_authorized_users()
+
+            QMessageBox.information(self, "Sucesso", "Lista de gerentes autorizados foi salva com sucesso!")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Não foi possível salvar a lista de gerentes.\n\nErro: {e}")
+            logging.error(f"Erro ao salvar gerentes do WhatsApp: {e}", exc_info=True)
 
     def _create_toggle_switch(self, text):
         widget = QWidget()
@@ -562,11 +633,11 @@ class WhatsAppWidget(QWidget):
                 return
             recipients = [self.recipients_list.item(i).text() for i in range(self.recipients_list.count())]
             if not recipients:
-                notification_number = self.whatsapp_phone_input.text().strip()
+                notification_number = self.test_number_input.text().strip() # Changed from whatsapp_phone_input
                 if notification_number:
                     recipients.append(notification_number)
                 else:
-                    QMessageBox.warning(self, "Nenhum Destinatário", "Não há destinatários configurados. Adicione ao menos um número na lista ou configure um número padrão.")
+                    QMessageBox.warning(self, "Nenhum Destinatário", "Não há destinatários configurados. Adicione ao menos um número na lista ou configure um número padrão para teste.")
                     return
             test_message = f"""🧪 *TESTE DO SISTEMA PDV MODERNO*\n\n✅ Configurações de notificações funcionando normalmente!\n\n📅 Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n👤 Usuário: {self.current_user.get('username', 'Sistema')}\n\nEste é apenas um teste. Se você recebeu esta mensagem, as notificações estão configuradas corretamente! 🎉"""
             success_count = 0

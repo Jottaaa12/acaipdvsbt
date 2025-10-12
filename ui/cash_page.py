@@ -437,24 +437,11 @@ class CashPage(QWidget):
             QMessageBox.warning(self, "Valor Inválido", "O valor digitado não é um número válido.")
 
     def on_session_opened(self, success, message):
-        self.open_cash_button.setText(f'{IconTheme.get_icon("open")} Abrir Caixa')
+        self.open_cash_button.setText(f'{IconTheme.get_icon("open")}')
         if success:
             QMessageBox.information(self, "Sucesso", f"Caixa aberto com ID: {message}")
             self.update_live_data()
             self.cash_session_changed.emit()
-
-            # Enviar notificação de abertura de caixa via WhatsApp
-            try:
-                from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-                sales_notifier = get_whatsapp_sales_notifier()
-
-                sales_notifier.notify_cash_opening(
-                    self.current_user['username'],
-                    float(self.last_initial_amount),
-                    {'id': 'nova_sessao'}
-                )
-            except Exception as e:
-                logging.warning(f"Erro ao enviar notificação de abertura de caixa: {e}")
         else:
             QMessageBox.warning(self, "Erro", message)
         self.update_buttons_state(is_open=success, is_busy=False)
