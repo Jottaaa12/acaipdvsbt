@@ -4,7 +4,7 @@ from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QGridLayout, QDialog, QLineEdit,
-    QMessageBox, QTabWidget, QListWidget, QHBoxLayout, QCheckBox, QGroupBox, QTextEdit
+    QMessageBox, QTabWidget, QListWidget, QHBoxLayout, QCheckBox, QGroupBox, QTextEdit, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -76,7 +76,24 @@ class WhatsAppWidget(QWidget):
         self.connect_signals()
 
     def setup_ui(self):
-        main_layout = QVBoxLayout(self)
+        # Define um tamanho padrão para a janela
+        self.resize(600, 700)
+
+        # Layout principal que conterá a área de rolagem
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Área de rolagem
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        root_layout.addWidget(scroll_area)
+
+        # Container para todo o conteúdo
+        container = QWidget()
+        scroll_area.setWidget(container)
+
+        main_layout = QVBoxLayout(container)
         main_layout.setSpacing(15)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 

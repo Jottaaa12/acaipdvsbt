@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence, QDoubleValidator
 from PyQt6.QtCore import Qt, pyqtSignal
 from decimal import Decimal, InvalidOperation
+from .theme import ModernTheme
 
 class PaymentDialog(QDialog):
     credit_sale_requested = pyqtSignal()
@@ -26,7 +27,7 @@ class PaymentDialog(QDialog):
 
         # --- UI Initialization ---
         self.setup_ui()
-        self.apply_styles()
+        self.setStyleSheet(ModernTheme.get_payment_dialog_stylesheet())
         self.setup_shortcuts()
         self.update_display()
 
@@ -130,116 +131,6 @@ class PaymentDialog(QDialog):
         action_layout.addWidget(self.finalize_button)
         main_layout.addLayout(action_layout)
 
-    def apply_styles(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-            }
-            QLabel {
-                font-size: 14px;
-                color: #bdc3c7;
-            }
-            QLabel#totalLabel {
-                color: #ecf0f1;
-                padding-bottom: 10px;
-            }
-            QLabel#remainingLabel, QLabel#changeLabel {
-                padding: 5px;
-                border-radius: 5px;
-            }
-            QLineEdit {
-                background-color: #34495e;
-                border: 1px solid #4a627a;
-                border-radius: 5px;
-                padding: 12px;
-                font-size: 18px;
-                color: #ecf0f1;
-            }
-            QListWidget {
-                background-color: #34495e;
-                border: 1px solid #4a627a;
-                border-radius: 5px;
-                font-size: 16px;
-            }
-            QListWidget::item {
-                padding: 8px;
-            }
-            QListWidget::item:alternate {
-                background-color: #3a5064;
-            }
-            
-            /* --- Modern Payment Buttons --- */
-            QPushButton#paymentMethodButton {
-                background-color: #34495e;
-                color: #ecf0f1;
-                border: 2px solid #4a627a;
-                padding: 20px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 16px;
-            }
-            QPushButton#paymentMethodButton:hover {
-                background-color: #4a627a;
-                border-color: #5b7d9c;
-            }
-            QPushButton#paymentMethodButton:checked {
-                background-color: #16a085;
-                border-color: #1abc9c;
-                color: white;
-            }
-
-            /* --- Other Buttons --- */
-            QPushButton#addPaymentButton {
-                background-color: #2980b9;
-                border: none;
-                padding: 12px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton#addPaymentButton:hover {
-                background-color: #3498db;
-            }
-            QPushButton#finalizeButton {
-                background-color: #27ae60;
-                border: none;
-                padding: 12px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton#finalizeButton:hover {
-                background-color: #2ecc71;
-            }
-            QPushButton#removePaymentButton {
-                background-color: #c0392b;
-                border: none;
-                padding: 12px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton#removePaymentButton:hover {
-                background-color: #e74c3c;
-            }
-            QPushButton#creditSaleButton {
-                background-color: #f39c12;
-                border: none;
-                font-size: 16px;
-                padding: 15px;
-                border-radius: 8px;
-                font-weight: bold;
-            }
-            QPushButton#creditSaleButton:hover {
-                background-color: #f1c40f;
-            }
-            QPushButton:disabled {
-                background-color: #7f8c8d;
-                color: #bdc3c7;
-                border-color: #95a5a6;
-            }
-        """)
 
     def setup_shortcuts(self):
         QShortcut(QKeySequence("F1"), self).activated.connect(lambda: self.cash_button.click())
@@ -292,7 +183,6 @@ class PaymentDialog(QDialog):
         if not method:
             # Simple feedback, could be a QMessageBox
             self.remaining_label.setText("Selecione um método!")
-            self.remaining_label.setStyleSheet("background-color: #c0392b;")
             return
 
         amount_str = self.amount_paid_input.text().strip().replace(',', '.')
@@ -307,7 +197,6 @@ class PaymentDialog(QDialog):
                     raise InvalidOperation
             except InvalidOperation:
                 self.remaining_label.setText("Valor inválido!")
-                self.remaining_label.setStyleSheet("background-color: #c0392b;")
                 return
 
         self.payments.append({'method': method, 'amount': amount})
@@ -345,22 +234,27 @@ class PaymentDialog(QDialog):
         # Update labels
         if self.remaining_amount > 0:
             self.remaining_label.setText(f"Restante: R$ {self.remaining_amount:.2f}")
-            self.remaining_label.setStyleSheet("background-color: #e67e22;")
+            self.remaining_label.setProperty("status", "warning")
             self.change_label.setText("")
-            self.change_label.setStyleSheet("")
+            self.change_label.setProperty("status", "")
             self.finalize_button.setEnabled(False)
             self.add_payment_button.setText("Adicionar Pagamento")
             self.add_payment_button.setEnabled(True)
         else:
             change = -self.remaining_amount
             self.remaining_label.setText("Pago!")
-            self.remaining_label.setStyleSheet("background-color: #27ae60;")
+            self.remaining_label.setProperty("status", "success")
             self.change_label.setText(f"Troco: R$ {change:.2f}")
-            self.change_label.setStyleSheet("background-color: #2ecc71;")
+            self.change_label.setProperty("status", "success")
             self.finalize_button.setEnabled(True)
             self.add_payment_button.setText("Venda Paga")
             self.add_payment_button.setEnabled(False)
             self.finalize_button.setFocus()
+
+        self.remaining_label.style().unpolish(self.remaining_label)
+        self.remaining_label.style().polish(self.remaining_label)
+        self.change_label.style().unpolish(self.change_label)
+        self.change_label.style().polish(self.change_label)
 
     def on_finalize_clicked(self):
         if self.remaining_amount > 0:

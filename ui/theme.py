@@ -30,9 +30,14 @@ class ModernTheme:
     
     # Cores de Status
     SUCCESS = "#10b981"           # Verde sucesso
+    SUCCESS_LIGHT = "#2ecc71"
+    SUCCESS_DARK = "#16a085"
     WARNING = "#f59e0b"           # Amarelo aviso
     ERROR = "#ef4444"             # Vermelho erro
+    ERROR_LIGHT = "#e74c3c"
     INFO = "#3b82f6"              # Azul informação
+    INFO_DARK = "#2980b9"
+    INFO_LIGHT = "#3498db"
     
     # Gradientes
     GRADIENT_PRIMARY = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {PRIMARY}, stop:1 {PRIMARY_LIGHT})"
@@ -85,16 +90,10 @@ class ModernTheme:
             background-color: rgba(255, 255, 255, 0.2);
         }}
         
-        QPushButton#sidebar_button_active {{
+        QPushButton#sidebar_button[active="true"] {{
             background-color: {ModernTheme.WHITE};
             color: {ModernTheme.PRIMARY};
-            border: none;
-            padding: 15px 20px;
-            text-align: left;
-            font-size: 14px;
             font-weight: 600;
-            border-radius: 8px;
-            margin: 2px 8px;
         }}
         
         /* === CARDS === */
@@ -110,6 +109,13 @@ class ModernTheme:
             border: none;
             border-radius: 12px;
             padding: 20px;
+        }}
+
+        QFrame#metricCard {{
+            background-color: {ModernTheme.WHITE};
+            border: none;
+            border-radius: 12px;
+            padding: 15px;
         }}
         
         /* === BOTÕES MODERNOS === */
@@ -261,6 +267,36 @@ class ModernTheme:
             font-weight: 500;
         }}
 
+        QLabel#logoLabel {{
+            font-size: 32px;
+        }}
+
+        QLabel#dashboardTitleLabel {{
+            color: {ModernTheme.PRIMARY_DARK};
+            font-size: 28px;
+            font-weight: 700;
+        }}
+
+        QFrame#sidebarSeparator {{
+            background-color: rgba(255, 255, 255, 0.2);
+            height: 1px;
+        }}
+
+        QLabel#metricIcon {{
+            font-size: 24px;
+        }}
+
+        QLabel#metricValue {{
+            font-size: 24px;
+            font-weight: 700;
+        }}
+
+        QLabel#metricLabel {{
+            color: {ModernTheme.GRAY};
+            font-size: 12px;
+            font-weight: 500;
+        }}
+
         QLabel#form_label {{
             color: {ModernTheme.DARK};
             font-size: 14px;
@@ -367,6 +403,162 @@ class ModernTheme:
             color: {ModernTheme.PRIMARY};
             font-weight: bold;
         }}
+
+        QFrame#dashboardContentContainer {{
+            background-color: {ModernTheme.GRAY_LIGHTER};
+        }}
+
+        ModernDashboard {{
+            background-color: transparent;
+        }}
+
+        QLabel#dashboardTitle {{
+            color: {ModernTheme.DARK};
+            font-size: 28px;
+            font-weight: 700;
+        }}
+
+        QLabel#dashboardSubtitle {{
+            color: {ModernTheme.GRAY};
+            font-size: 16px;
+        }}
+
+        QTableWidget#dashboardTable {{
+            border: none;
+            background-color: {ModernTheme.WHITE};
+        }}
+
+        QHeaderView#dashboardHeader::section {{
+            background-color: {ModernTheme.GRAY_LIGHTER};
+            padding: 4px;
+            border: none;
+            font-weight: bold;
+        }}
+
+        QLabel#dashboardStatusLabel {{
+            font-size: 14px;
+        }}
+        """
+
+    @staticmethod
+    def get_payment_dialog_stylesheet():
+        return f"""
+            QDialog {{
+                background-color: {ModernTheme.DARK_LIGHT};
+                color: {ModernTheme.WHITE};
+            }}
+            QLabel {{
+                font-size: 14px;
+                color: {ModernTheme.GRAY_LIGHT};
+            }}
+            QLabel#totalLabel {{
+                color: {ModernTheme.WHITE};
+                padding-bottom: 10px;
+            }}
+            QLabel#remainingLabel, QLabel#changeLabel {
+                padding: 5px;
+                border-radius: 5px;
+            }
+            QLabel#remainingLabel[status="warning"] {
+                background-color: {ModernTheme.WARNING};
+            }
+            QLabel#remainingLabel[status="success"] {
+                background-color: {ModernTheme.SUCCESS};
+            }
+            QLabel#changeLabel[status="success"] {
+                background-color: {ModernTheme.SUCCESS_LIGHT};
+            }
+            QLineEdit {{
+                background-color: {ModernTheme.DARK_LIGHT};
+                border: 1px solid {ModernTheme.GRAY};
+                border-radius: 5px;
+                padding: 12px;
+                font-size: 18px;
+                color: {ModernTheme.WHITE};
+            }}
+            QListWidget {{
+                background-color: {ModernTheme.DARK_LIGHT};
+                border: 1px solid {ModernTheme.GRAY};
+                border-radius: 5px;
+                font-size: 16px;
+            }}
+            QListWidget::item {{
+                padding: 8px;
+            }}
+            QListWidget::item:alternate {{
+                background-color: #3a5064;
+            }}
+            
+            /* --- Modern Payment Buttons --- */
+            QPushButton#paymentMethodButton {{
+                background-color: {ModernTheme.DARK_LIGHT};
+                color: {ModernTheme.WHITE};
+                border: 2px solid {ModernTheme.GRAY};
+                padding: 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 16px;
+            }}
+            QPushButton#paymentMethodButton:hover {{
+                background-color: {ModernTheme.GRAY};
+                border-color: #5b7d9c;
+            }}
+            QPushButton#paymentMethodButton:checked {{
+                background-color: {ModernTheme.SUCCESS};
+                border-color: {ModernTheme.SUCCESS_LIGHT};
+                color: white;
+            }}
+
+            /* --- Other Buttons --- */
+            QPushButton#addPaymentButton {{
+                background-color: {ModernTheme.INFO_DARK};
+                border: none;
+                padding: 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton#addPaymentButton:hover {{
+                background-color: {ModernTheme.INFO_LIGHT};
+            }}
+            QPushButton#finalizeButton {{
+                background-color: {ModernTheme.SUCCESS};
+                border: none;
+                padding: 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton#finalizeButton:hover {{
+                background-color: {ModernTheme.SUCCESS_LIGHTER};
+            }}
+            QPushButton#removePaymentButton {{
+                background-color: {ModernTheme.ERROR};
+                border: none;
+                padding: 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton#removePaymentButton:hover {{
+                background-color: {ModernTheme.ERROR_LIGHT};
+            }}
+            QPushButton#creditSaleButton {{
+                background-color: {ModernTheme.WARNING};
+                border: none;
+                font-size: 16px;
+                padding: 15px;
+                border-radius: 8px;
+                font-weight: bold;
+            }}
+            QPushButton#creditSaleButton:hover {{
+                background-color: {ModernTheme.SECONDARY_LIGHT};
+            }}
+            QPushButton:disabled {{
+                background-color: {ModernTheme.GRAY};
+                color: {ModernTheme.GRAY_LIGHT};
+                border-color: {ModernTheme.GRAY_LIGHT};
+            }}
         """
     
     @staticmethod

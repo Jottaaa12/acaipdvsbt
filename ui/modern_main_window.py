@@ -36,6 +36,7 @@ class ModernSidebar(QFrame):
     def __init__(self):
         super().__init__()
         self.expanded = True
+        self.active_button = None
         self.setObjectName("sidebar")
         self.setFixedWidth(250)
         
@@ -56,33 +57,19 @@ class ModernSidebar(QFrame):
         
         # Logo e título
         self.logo_label = QLabel("🍇")
-        self.logo_label.setStyleSheet("font-size: 32px;")
+        self.logo_label.setObjectName("logoLabel")
+        self.title_label = QLabel("PDV Moderno")
+        self.title_label.setObjectName("dashboardTitleLabel")
+        
         header_layout.addWidget(self.logo_label)
-        
-        self.title_label = QLabel("PDV Açaí")
-        self.title_label.setStyleSheet(f"""
-            color: {ModernTheme.WHITE};
-            font-size: 18px;
-            font-weight: 700;
-            margin-left: 10px;
-        """)
         header_layout.addWidget(self.title_label)
-        
-        header_layout.addStretch()
-        
-        # Botão toggle
-        self.toggle_button = QPushButton("☰")
-        self.toggle_button.setObjectName("sidebar_button")
-        self.toggle_button.setFixedSize(40, 40)
-        self.toggle_button.clicked.connect(self.toggle_sidebar)
-        header_layout.addWidget(self.toggle_button)
-        
         layout.addWidget(header)
-        
+
         # Separador
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet(f"background-color: rgba(255, 255, 255, 0.2); height: 1px;")
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setObjectName("sidebarSeparator")
         layout.addWidget(separator)
         
         # Menu items
@@ -123,7 +110,7 @@ class ModernSidebar(QFrame):
         layout.addWidget(self.menu_container)
         
         # Define dashboard como ativo por padrão
-        self.set_active_button("dashboard")
+        self.set_active_button(self.menu_buttons["dashboard"])
     
     def apply_theme(self):
         """Aplica o tema da sidebar"""
@@ -156,36 +143,18 @@ class ModernSidebar(QFrame):
             }}
         """)
     
-    def set_active_button(self, key):
-        """Define o botão ativo"""
-        for btn_key, button in self.menu_buttons.items():
-            if btn_key == key:
-                button.setStyleSheet(f"""
-                    QPushButton#sidebar_button {{
-                        background-color: {ModernTheme.WHITE};
-                        color: {ModernTheme.PRIMARY};
-                        border: none;
-                        padding: 15px 20px;
-                        text-align: left;
-                        font-size: 14px;
-                        font-weight: 600;
-                        border-radius: 8px;
-                        margin: 2px 8px;
-                    }}
-                """)
-            else:
-                button.setStyleSheet("""
-                    QPushButton#sidebar_button {
-                        background-color: transparent;
-                        color: white;
-                    }
-                    QPushButton#sidebar_button:hover {
-                        background-color: rgba(255, 255, 255, 0.15);
-                    }
-                    QPushButton#sidebar_button:pressed {
-                        background-color: rgba(255, 255, 255, 0.25);
-                    }
-                """)
+    def set_active_button(self, button):
+        """Sets the visual style for the active sidebar button."""
+        if self.active_button:
+            self.active_button.setProperty("active", False)
+            self.active_button.style().unpolish(self.active_button)
+            self.active_button.style().polish(self.active_button)
+        
+        button.setProperty("active", True)
+        button.style().unpolish(button)
+        button.style().polish(button)
+
+        self.active_button = button
     
     def toggle_sidebar(self):
         """Alterna entre expandido e retraído"""
@@ -340,9 +309,9 @@ class ModernDashboard(QWidget):
         # Header
         header_layout = QVBoxLayout()
         title = QLabel("Dashboard")
-        title.setObjectName("title")
+        title.setObjectName("dashboardTitle")
         subtitle = QLabel("Visão geral do seu negócio em tempo real")
-        subtitle.setObjectName("subtitle")
+        subtitle.setObjectName("dashboardSubtitle")
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
         content_layout.addLayout(header_layout)
@@ -381,7 +350,6 @@ class ModernDashboard(QWidget):
         grid_layout.setColumnStretch(1, 1)
 
         content_layout.addStretch() # Adiciona um espaçador no final do conteúdo rolável
-        self.apply_styles()
 
     def create_kpi_card(self, key, icon, label, value, color, layout):
         card = QFrame()
@@ -395,17 +363,19 @@ class ModernDashboard(QWidget):
         card_layout = QVBoxLayout(card)
         
         icon_label = QLabel(icon)
-        icon_label.setStyleSheet("font-size: 24px;")
+        icon_label.setObjectName("metricIcon")
         value_label = QLabel(value)
-        value_label.setStyleSheet(f"color: {color}; font-size: 24px; font-weight: 700;")
+        value_label.setObjectName("metricValue")
+        value_label.setStyleSheet(f"color: {color};")
         self.kpi_labels[key] = value_label
         label_widget = QLabel(label)
-        label_widget.setStyleSheet(f"color: {ModernTheme.GRAY}; font-size: 12px; font-weight: 500;")
+        label_widget.setObjectName("metricLabel")
 
         card_layout.addWidget(icon_label)
         card_layout.addWidget(value_label)
         card_layout.addWidget(label_widget)
-        card.setStyleSheet(f"""QFrame#card {{ background-color: {ModernTheme.WHITE}; border: none; border-radius: 12px; border-left: 4px solid {color}; padding: 15px; }} """)
+        card.setObjectName("metricCard")
+        card.setStyleSheet(f"border-left: 4px solid {color};")
         layout.addWidget(card)
 
     def create_sales_by_hour_chart(self):
@@ -422,6 +392,7 @@ class ModernDashboard(QWidget):
         # Usaremos um QTableWidget para simular um gráfico de pizza/rosca com legendas
         # PyQtGraph não tem um item de pizza nativo fácil de usar.
         chart_widget = QTableWidget()
+        chart_widget.setObjectName("dashboardTable")
         chart_widget.setColumnCount(3)
         chart_widget.setHorizontalHeaderLabels(["Cor", "Categoria", "Faturamento (%)"])
         chart_widget.verticalHeader().setVisible(False)
@@ -433,6 +404,7 @@ class ModernDashboard(QWidget):
 
     def create_latest_sales_table(self):
         table = QTableWidget()
+        table.setObjectName("dashboardTable")
         table.setColumnCount(3)
         table.setHorizontalHeaderLabels(["Horário", "Usuário", "Valor"])
         table.verticalHeader().setVisible(False)
@@ -448,12 +420,12 @@ class ModernDashboard(QWidget):
 
         # Status da Balança
         self.scale_status_label = QLabel("⚖️ Verificando...")
-        self.scale_status_label.setObjectName("status_label")
+        self.scale_status_label.setObjectName("dashboardStatusLabel")
         layout.addWidget(self.scale_status_label)
 
         # Status da Impressora
         self.printer_status_label = QLabel("🖨️ Verificando...")
-        self.printer_status_label.setObjectName("status_label")
+        self.printer_status_label.setObjectName("dashboardStatusLabel")
         layout.addWidget(self.printer_status_label)
         
         layout.addStretch()
@@ -562,20 +534,7 @@ class ModernDashboard(QWidget):
             self.printer_status_label.setText(f"🖨️ {message}")
             self.printer_status_label.setStyleSheet(f"color: {ModernTheme.ERROR}; font-weight: 500;")
 
-    def apply_styles(self):
-        self.setStyleSheet(f"""
-            #dashboard_content_container {{
-                background-color: {ModernTheme.GRAY_LIGHTER};
-            }}
-            ModernDashboard {{
-                background-color: transparent; /* Garante que o fundo do widget principal não interfira */
-            }}
-            QLabel#title {{ color: {ModernTheme.DARK}; font-size: 28px; font-weight: 700; }}
-            QLabel#subtitle {{ color: {ModernTheme.GRAY}; font-size: 16px; }}
-            QTableWidget {{ border: none; background-color: {ModernTheme.WHITE}; }}
-            QHeaderView::section {{ background-color: {ModernTheme.GRAY_LIGHTER}; padding: 4px; border: none; font-weight: bold; }}
-            QLabel#status_label {{ font-size: 14px; }}
-        """)
+
 
 
 import json
@@ -850,7 +809,9 @@ class ModernMainWindow(QMainWindow):
             }
             
             if page_name in page_map:
-                self.sidebar.set_active_button(page_map[page_name])
+                button_key = page_map[page_name]
+                if button_key in self.sidebar.menu_buttons:
+                    self.sidebar.set_active_button(self.sidebar.menu_buttons[button_key])
     
     def setup_status_bar(self):
         """Configura a barra de status"""

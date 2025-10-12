@@ -138,11 +138,13 @@ class SalesPage(QWidget):
         self.items_count_label = QLabel("0")
         self.get_weight_button = QPushButton("Calcular Peso da Balança")
         self.get_weight_button.setObjectName("modern_button_secondary")
+        self.get_weight_button.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
 
         self.reconnect_scale_button = QPushButton("Reconectar Balança")
         self.reconnect_scale_button.setToolTip("Tentar reconectar com a balança")
         self.reconnect_scale_button.setObjectName("modern_button_error")
         self.reconnect_scale_button.setVisible(False)
+        self.reconnect_scale_button.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
 
         sale_info_layout.addWidget(QLabel("Peso da Balança:"), 0, 0)
         sale_info_layout.addWidget(self.weight_label, 0, 1)
