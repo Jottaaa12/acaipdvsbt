@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from config_manager import ConfigManager
 from ui.theme import ModernTheme
+from data.settings_repository import are_notifications_globally_enabled, set_global_notification_status
 
 class QRCodeDialog(QDialog):
     """Um diálogo modal simples para exibir o QR Code do WhatsApp de forma clara."""
@@ -355,8 +356,16 @@ class WhatsAppWidget(QWidget):
         layout = QVBoxLayout(container)
         layout.setSpacing(20)
 
-        features_group = QGroupBox("Funcionalidades de Notificação")
-        features_layout = QVBoxLayout(features_group)
+        # --- Master Switch ---
+        master_group = QGroupBox("Controle Geral de Notificações")
+        master_layout = QVBoxLayout(master_group)
+        master_widget, self.global_notifications_checkbox = self._create_toggle_switch("Ativar Todas as Notificações (Global)")
+        master_layout.addWidget(master_widget)
+        layout.addWidget(master_group)
+
+        # --- Features Group ---
+        self.features_group = QGroupBox("Funcionalidades de Notificação")
+        features_layout = QVBoxLayout(self.features_group)
         features_layout.setSpacing(15)
         sales_widget, self.sales_notifications_checkbox = self._create_toggle_switch("Notificar Vendas Realizadas")
         cash_widget, self.cash_notifications_checkbox = self._create_toggle_switch("Notificar Abertura e Fechamento de Caixa")
@@ -364,7 +373,11 @@ class WhatsAppWidget(QWidget):
         features_layout.addWidget(sales_widget)
         features_layout.addWidget(cash_widget)
         features_layout.addWidget(stock_widget)
-        layout.addWidget(features_group)
+        layout.addWidget(self.features_group)
+
+        self.global_notifications_checkbox.stateChanged.connect(
+            lambda state: self.features_group.setEnabled(state == Qt.CheckState.Checked.value)
+        )
 
         settings_group = QGroupBox("Configurações Adicionais")
         settings_layout = QGridLayout(settings_group)
@@ -440,6 +453,11 @@ class WhatsAppWidget(QWidget):
 
     def load_notifications_config_to_ui(self):
         try:
+            # Carregar configuração global
+            is_globally_enabled = are_notifications_globally_enabled()
+            self.global_notifications_checkbox.setChecked(is_globally_enabled)
+            self.features_group.setEnabled(is_globally_enabled)
+
             from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
             notifier = get_whatsapp_sales_notifier()
             settings = notifier.get_settings()
@@ -460,6 +478,10 @@ class WhatsAppWidget(QWidget):
 
     def save_notifications_config(self):
         try:
+            # Salvar configuração global
+            is_globally_enabled = self.global_notifications_checkbox.isChecked()
+            set_global_notification_status(is_globally_enabled)
+
             from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
             notifier = get_whatsapp_sales_notifier()
             notifier.enable_sale_notifications(self.sales_notifications_checkbox.isChecked())

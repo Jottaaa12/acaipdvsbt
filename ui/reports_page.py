@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QGroupBox, QGridLayout, QDateEdit, QTabWidget,
-    QFileDialog, QMessageBox, QDialog, QTextEdit, QDialogButtonBox
+    QFileDialog, QMessageBox, QDialog, QTextEdit, QDialogButtonBox, QLineEdit
 )
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
@@ -37,8 +37,10 @@ class ReportsPage(QWidget):
         sales_tab = self.create_sales_report_tab()
         stock_tab = self.create_stock_report_tab()
         cash_history_tab = self.create_cash_history_tab()
+        credit_tab = self.create_credit_report_tab() # Nova aba
 
         tab_widget.addTab(sales_tab, "Vendas")
+        tab_widget.addTab(credit_tab, "Crédito") # Adicionada
         tab_widget.addTab(stock_tab, "Estoque")
         tab_widget.addTab(cash_history_tab, "Histórico de Caixa")
 
@@ -178,6 +180,120 @@ class ReportsPage(QWidget):
 
         return widget
 
+    def create_credit_report_tab(self):
+        """Cria a aba principal para todos os relatórios de crédito."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        credit_tabs = QTabWidget()
+        layout.addWidget(credit_tabs)
+
+        # Sub-aba: Extrato de Cliente
+        statement_widget = QWidget()
+        statement_layout = QVBoxLayout(statement_widget)
+        
+        statement_filter_layout = QHBoxLayout()
+        self.customer_search_input = QLineEdit(placeholderText="Buscar cliente por nome, CPF...")
+        self.generate_statement_button = QPushButton("Gerar Extrato")
+        self.export_statement_button = QPushButton("Exportar CSV")
+        statement_filter_layout.addWidget(self.customer_search_input)
+        statement_filter_layout.addWidget(self.generate_statement_button)
+        statement_filter_layout.addWidget(self.export_statement_button)
+        statement_layout.addLayout(statement_filter_layout)
+
+        self.statement_table = QTableWidget()
+        self.statement_table.setObjectName("statement_table") # Add object name
+        self.statement_table.setColumnCount(4)
+        self.statement_table.setHorizontalHeaderLabels(["Data", "Tipo", "Detalhes", "Valor"])
+        statement_layout.addWidget(self.statement_table)
+        credit_tabs.addTab(statement_widget, "Extrato de Cliente")
+
+        # Sub-aba: Relatório de Inadimplência
+        overdue_widget = QWidget()
+        overdue_layout = QVBoxLayout(overdue_widget)
+        self.export_overdue_button = QPushButton("Exportar CSV")
+        overdue_layout.addWidget(self.export_overdue_button, alignment=Qt.AlignmentFlag.AlignRight)
+        self.overdue_table = QTableWidget()
+        self.overdue_table.setObjectName("overdue_table") # Add object name
+        self.overdue_table.setColumnCount(5)
+        self.overdue_table.setHorizontalHeaderLabels(["Cliente", "Telefone", "Dias Vencido", "Saldo Devedor", "ID da Venda"])
+        overdue_layout.addWidget(self.overdue_table)
+        credit_tabs.addTab(overdue_widget, "Inadimplência")
+
+        # Sub-aba: Curva ABC de Clientes
+        abc_widget = QWidget()
+        abc_layout = QVBoxLayout(abc_widget)
+        self.export_abc_button = QPushButton("Exportar CSV")
+        abc_layout.addWidget(self.export_abc_button, alignment=Qt.AlignmentFlag.AlignRight)
+        self.abc_table = QTableWidget()
+        self.abc_table.setObjectName("abc_table") # Add object name
+        self.abc_table.setColumnCount(5)
+        self.abc_table.setHorizontalHeaderLabels(["Cliente", "Valor Total Comprado", "% Individual", "% Acumulada", "Classificação"])
+        abc_layout.addWidget(self.abc_table)
+        credit_tabs.addTab(abc_widget, "Curva ABC de Clientes")
+
+        # Conexões
+        self.generate_statement_button.clicked.connect(self.generate_customer_statement_report)
+        self.export_statement_button.clicked.connect(lambda: self.export_table_to_csv(self.statement_table, "extrato_cliente"))
+        self.export_overdue_button.clicked.connect(lambda: self.export_table_to_csv(self.overdue_table, "inadimplencia"))
+        self.export_abc_button.clicked.connect(lambda: self.export_table_to_csv(self.abc_table, "curva_abc_clientes"))
+        credit_tabs.currentChanged.connect(self.on_credit_tab_changed)
+
+        return widget
+
+    def on_credit_tab_changed(self, index):
+        if index == 1: # Inadimplência
+            self.generate_overdue_report()
+        elif index == 2: # Curva ABC
+            self.generate_abc_curve_report()
+
+    def generate_customer_statement_report(self):
+        search_term = self.customer_search_input.text()
+        if not search_term:
+            QMessageBox.warning(self, "Atenção", "Digite o nome ou CPF do cliente.")
+            return
+        
+        customers = db.search_customers(search_term)
+        if not customers:
+            QMessageBox.information(self, "Não encontrado", "Nenhum cliente encontrado.")
+            return
+        
+        # Por simplicidade, pega o primeiro cliente. O ideal seria um diálogo de seleção.
+        customer_id = customers[0]['id']
+        customer, statement = db.get_customer_statement(customer_id)
+
+        self.statement_table.setRowCount(0)
+        self.statement_table.setRowCount(len(statement))
+        balance = Decimal('0')
+        for i, entry in enumerate(reversed(statement)):
+            balance += entry['amount'] if entry['type'] == 'credit_sale' else -entry['amount']
+
+        for row, entry in enumerate(statement):
+            self.statement_table.setItem(row, 0, QTableWidgetItem(entry['date']))
+            self.statement_table.setItem(row, 1, QTableWidgetItem(entry['type']))
+            self.statement_table.setItem(row, 2, QTableWidgetItem(entry['details']))
+            self.statement_table.setItem(row, 3, QTableWidgetItem(format_currency(entry['amount'])))
+
+    def generate_overdue_report(self):
+        report = db.get_overdue_accounts_report()
+        self.overdue_table.setRowCount(len(report))
+        for row, item in enumerate(report):
+            self.overdue_table.setItem(row, 0, QTableWidgetItem(item['customer_name']))
+            self.overdue_table.setItem(row, 1, QTableWidgetItem(item['phone']))
+            self.overdue_table.setItem(row, 2, QTableWidgetItem(str(item['days_overdue'])))
+            self.overdue_table.setItem(row, 3, QTableWidgetItem(format_currency(item['balance_due'])))
+            self.overdue_table.setItem(row, 4, QTableWidgetItem(str(item['credit_sale_id'])))
+
+    def generate_abc_curve_report(self):
+        report = db.get_customer_abc_curve()
+        self.abc_table.setRowCount(len(report))
+        for row, item in enumerate(report):
+            self.abc_table.setItem(row, 0, QTableWidgetItem(item['name']))
+            self.abc_table.setItem(row, 1, QTableWidgetItem(format_currency(item['total_amount'])))
+            self.abc_table.setItem(row, 2, QTableWidgetItem(f"{item['percentage']:.2f}%"))
+            self.abc_table.setItem(row, 3, QTableWidgetItem(f"{item['cumulative_percentage']:.2f}%"))
+            self.abc_table.setItem(row, 4, QTableWidgetItem(item['classification']))
+
     # --- Funções de Lógica para Relatório de Vendas ---
 
     def generate_cash_history_report(self):
@@ -222,7 +338,7 @@ class ReportsPage(QWidget):
             self.cash_history_table.setItem(row, 4, QTableWidgetItem(f"R$ {item['expected_amount']:.2f}"))
             self.cash_history_table.setItem(row, 5, QTableWidgetItem(f"R$ {item['final_amount']:.2f}"))
             self.cash_history_table.setItem(row, 6, diff_item)
-            self.cash_history_table.setItem(row, 7, QTableWidgetItem(item['user_opened']))
+            self.cash_history_table.setItem(row, 7, QTableWidgetItem(item.get('username', '[N/A]')))
 
             # Botão de detalhes
             details_button = QPushButton("Ver Detalhes")
@@ -502,3 +618,29 @@ class ReportsPage(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Erro ao Exportar", f"""Ocorreu um erro ao salvar o arquivo CSV:
 {e}""")
+
+    def export_table_to_csv(self, table: QTableWidget, report_name: str):
+        if table.rowCount() == 0:
+            QMessageBox.warning(self, "Atenção", "Não há dados para exportar.")
+            return
+
+        default_filename = f"relatorio_{report_name}_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        fileName, _ = QFileDialog.getSaveFileName(self, f"Exportar Relatório de {report_name.replace('_', ' ').title()}", default_filename, "Arquivos CSV (*.csv);;Todos os Arquivos (*)")
+
+        if fileName:
+            try:
+                with open(fileName, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    
+                    # Escreve o cabeçalho
+                    headers = [table.horizontalHeaderItem(i).text() for i in range(table.columnCount())]
+                    writer.writerow(headers)
+
+                    # Escreve os dados
+                    for row in range(table.rowCount()):
+                        row_data = [table.item(row, col).text() for col in range(table.columnCount())]
+                        writer.writerow(row_data)
+                
+                QMessageBox.information(self, "Sucesso", f"Relatório exportado com sucesso para:\n{fileName}")
+            except Exception as e:
+                QMessageBox.critical(self, "Erro ao Exportar", f"Ocorreu um erro ao salvar o arquivo CSV:\n{e}")

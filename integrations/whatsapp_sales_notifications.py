@@ -131,10 +131,13 @@ class WhatsAppSalesNotifier:
             if not self.notification_settings.get('enable_cash_notifications', False):
                 return True
 
+            # Correção do Bug de Horário: Captura a hora exata do envio
+            now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+
             message = (
                 f"✅ *CAIXA ABERTO* ✅\n\n"
                 f"*{self._get_store_name()}*\n\n"
-                f"🗓️ *Data/Hora:* {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+                f"🗓️ *Data/Hora:* {now_str}\n"
                 f"👤 *Operador:* {user_name}\n"
                 f"💰 *Saldo Inicial:* R$ {initial_amount:.2f}\n"
                 f"🆔 *Sessão:* #{summary_dict.get('id', 'N/A')}\n\n"
@@ -165,6 +168,7 @@ class WhatsAppSalesNotifier:
             session = report.get('session', {})
             sales = report.get('sales', [])
             movements = report.get('movements', [])
+            total_weight_kg = report.get('total_weight_kg', 0.0)
 
             # --- Formatação da Mensagem ---
             user_name = session.get('username', 'N/A')
@@ -185,6 +189,10 @@ class WhatsAppSalesNotifier:
                     sales_summary += f"  - {sale['payment_method']}: R$ {sale['total']:.2f} ({sale['count']} vendas)\n"
             total_revenue = sum(Decimal(s['total']) for s in sales)
             sales_summary += f"*Total em Vendas:* R$ {total_revenue:.2f}\n"
+
+            # Adiciona o total de açaí vendido
+            if total_weight_kg > 0:
+                sales_summary += f"⚖️ *Total de Açaí Vendido:* {total_weight_kg:.3f} kg\n"
 
             # Movimentações de Caixa
             movements_summary = "\n*Movimentações de Caixa:*\n"
@@ -263,52 +271,71 @@ class WhatsAppSalesNotifier:
             return False
 
     def _build_sale_message(self, sale_data: Dict[str, Any], payment_details: List[Dict[str, Any]], change_amount: float) -> Optional[str]:
-        """Constrói mensagem detalhada de venda."""
+        """Constrói a mensagem de notificação de venda detalhada."""
         try:
-            total_paid = sum(float(p['amount']) for p in payment_details)
+            # --- Coleta de Dados ---
+            now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+            session_sale_id = sale_data.get("session_sale_id")
 
-            # Construir detalhamento dos pagamentos
-            payment_breakdown = ""
-            if self.notification_settings.get('detailed_payment_breakdown', True):
-                payment_icons = {
-                    'Dinheiro': '💵', 'PIX': '📱', 'Débito': '💳', 'Crédito': '💳',
-                }
-                for payment in payment_details:
-                    method = payment['method']
-                    amount = float(payment['amount'])
-                    icon = payment_icons.get(method, '💰')
-                    payment_breakdown += f"  {icon} {method}: R$ {amount:.2f}\n"
-            
-            # Adicionar informações de total pago e troco
-            payment_breakdown += f"--------------------\n"
-            payment_breakdown += f"  Total Pago: R$ {total_paid:.2f}\n"
+            # Correção para nome do cliente
+            customer_name = sale_data.get("customer_name")
+            if not customer_name or not customer_name.strip():
+                customer_name = "Consumidor Final"
+            else:
+                customer_name = customer_name.strip()
+            total_amount = Decimal(sale_data.get("total_amount", 0.0))
+            items = sale_data.get("items", [])
+            change_amount = Decimal(change_amount)
+
+            display_sale_id = session_sale_id if session_sale_id is not None else sale_data.get("id", "N/A")
+
+            # --- Construção dos Itens ---
+            items_str = ""
+            for item in items:
+                desc = item.get('description', 'N/A')
+                total_price = Decimal(item.get('total_price', 0))
+                if item.get('sale_type') == 'weight':
+                    qty = Decimal(item.get('quantity', 0))
+                    items_str += f"  - {desc} ({qty:.3f} kg) - R$ {total_price:.2f}\n"
+                else:
+                    qty = int(item.get('quantity', 0))
+                    items_str += f"  - {desc} ({qty} un) - R$ {total_price:.2f}\n"
+
+            # --- Construção do Pagamento (com detalhamento) ---
+            total_paid = sum(Decimal(p['amount']) for p in payment_details)
+            payment_str = f"💰 *PAGAMENTO*\n"
+
+            if len(payment_details) > 1:
+                # Detalha cada pagamento se houver mais de um
+                for p in payment_details:
+                    payment_str += f"  - {p['method']}: R$ {Decimal(p['amount']):.2f}\n"
+                payment_str += f"  - *Valor Total Pago:* R$ {total_paid:.2f}\n"
+            elif payment_details:
+                # Formato simples para pagamento único
+                payment_str += f"  - Forma: {payment_details[0]['method']}\n"
+                payment_str += f"  - Valor Pago: R$ {total_paid:.2f}\n"
+            else:
+                # Caso de fiado, onde a lista de pagamentos pode ser vazia
+                payment_str += f"  - Forma: Fiado\n"
+
             if change_amount > 0:
-                payment_breakdown += f"  Troco: R$ {change_amount:.2f}\n"
+                payment_str += f"  - Troco: R$ {change_amount:.2f}\n"
 
-            payment_breakdown = payment_breakdown.rstrip()
-
-            # Verificar se há template customizado
-            custom_templates = self.notification_settings.get('custom_message_templates', {})
-            template_name = custom_templates.get('sale_notification', 'detailed_sale_notification')
-
-            template = self.config.get_template(template_name)
-            if not template:
-                template = self.config.get_template('detailed_sale_notification')
-
-            message = template.format(
-                store_name=self._get_store_name(),
-                customer_name=sale_data.get('customer_name', 'Cliente'),
-                order_number=sale_data.get('id', 'N/A'),
-                total_amount=float(sale_data.get('total_amount', 0)),
-                payment_breakdown=payment_breakdown,
-                date=datetime.now().strftime('%d/%m/%Y'),
-                time=datetime.now().strftime('%H:%M')
+            # --- Montagem da Mensagem Final ---
+            message = (
+                f"✅ *VENDA REALIZADA* ✅\n\n"
+                f"👤 *Cliente:* {customer_name}\n"
+                f"🆔 *Pedido:* {display_sale_id}\n"
+                f"🗓️ *Data/Hora:* {now_str}\n\n"
+                f"📋 *ITENS*\n{items_str}\n"
+                f"{payment_str}\n"
+                f"*TOTAL GERAL: R$ {total_amount:.2f}*"
             )
-
+            
             return message
 
         except Exception as e:
-            logging.error(f"Erro ao construir mensagem de venda: {e}", exc_info=True)
+            logging.error(f"Erro ao construir mensagem de venda detalhada: {e}", exc_info=True)
             return None
 
     def _get_notification_recipients(self) -> List[str]:
@@ -387,6 +414,67 @@ class WhatsAppSalesNotifier:
         """Define valor mínimo para notificações de vendas."""
         self.notification_settings['minimum_sale_value'] = value
         self._save_notification_settings()
+
+    def notify_credit_created(self, credit_sale_id: int) -> bool:
+        """Notifica a criação de uma nova venda a crédito (fiado)."""
+        try:
+            if not db.are_notifications_globally_enabled() or not self.notification_settings.get('enable_sale_notifications', False):
+                return True
+
+            details = db.get_credit_sale_details(credit_sale_id)
+            if not details:
+                return False
+
+            now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+            message = (
+                f"📝 *NOVO FIADO REGISTRADO* 📝\n\n"
+                f"*Cliente:* {details['customer_name']}\n"
+                f"*Valor:* R$ {details['amount']:.2f}\n"
+                f"*Data:* {now_str}\n"
+                f"*Operador:* {details['username']}\n"
+                f"*ID do Fiado:* {credit_sale_id}"
+            )
+
+            recipients = self._get_notification_recipients()
+            success_count = 0
+            for phone in recipients:
+                result = self.manager.send_message(phone, message, message_type='system_automatic')
+                if result.get('success'):
+                    success_count += 1
+            return success_count > 0
+        except Exception as e:
+            logging.error(f"Erro ao notificar criação de fiado: {e}", exc_info=True)
+            return False
+
+    def notify_credit_paid(self, credit_sale_id: int) -> bool:
+        """Notifica quando um fiado é totalmente pago."""
+        try:
+            if not db.are_notifications_globally_enabled() or not self.notification_settings.get('enable_sale_notifications', False):
+                return True
+
+            details = db.get_credit_sale_details(credit_sale_id)
+            if not details or details['status'] != 'paid':
+                return False
+
+            now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+            message = (
+                f"🎉 *FIADO QUITADO* 🎉\n\n"
+                f"*Cliente:* {details['customer_name']}\n"
+                f"*Valor Total Pago:* R$ {details['total_paid']:.2f}\n"
+                f"*Data da Quitação:* {now_str}\n"
+                f"*ID do Fiado:* {credit_sale_id}"
+            )
+
+            recipients = self._get_notification_recipients()
+            success_count = 0
+            for phone in recipients:
+                result = self.manager.send_message(phone, message, message_type='system_automatic')
+                if result.get('success'):
+                    success_count += 1
+            return success_count > 0
+        except Exception as e:
+            logging.error(f"Erro ao notificar quitação de fiado: {e}", exc_info=True)
+            return False
 
     def get_settings(self) -> Dict[str, Any]:
         """Retorna configurações atuais."""

@@ -7,6 +7,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from decimal import Decimal, InvalidOperation
 
 class PaymentDialog(QDialog):
+    credit_sale_requested = pyqtSignal()
+
     """
     A dialog for handling sale payments, including multiple payment methods,
     discounts, and surcharges.
@@ -34,7 +36,7 @@ class PaymentDialog(QDialog):
 
         # --- Display Total ---
         self.total_label = QLabel(f"Total a Pagar: R$ {self.total_amount:.2f}")
-        self.total_label.setFont(QFont("Arial", 22, QFont.Weight.Bold))
+        self.total_label.setFont(QFont("Arial", 24, QFont.Weight.Bold))
         self.total_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.total_label.setObjectName("totalLabel")
         main_layout.addWidget(self.total_label)
@@ -67,34 +69,46 @@ class PaymentDialog(QDialog):
         main_layout.addWidget(self.remove_payment_button)
         self.payments_list.itemSelectionChanged.connect(self.update_remove_button_state)
 
+        # --- Payment Method Selection (Modernized) ---
+        payment_methods_frame = QFrame()
+        payment_grid = QGridLayout(payment_methods_frame)
+        payment_grid.setSpacing(15)
 
-        # --- Payment Method Selection ---
-        payment_grid = QGridLayout()
-        self.cash_button = QPushButton("F1 - Dinheiro")
-        self.credit_button = QPushButton("F2 - Crédito")
-        self.debit_button = QPushButton("F3 - Débito")
-        self.pix_button = QPushButton("F4 - PIX")
-        
-        self.payment_buttons = {
+        self.cash_button = QPushButton("💵 F1 - Dinheiro")
+        self.credit_button = QPushButton("💳 F2 - Crédito")
+        self.debit_button = QPushButton("💳 F3 - Débito")
+        self.pix_button = QPushButton("⚡ F4 - PIX")
+        self.credit_sale_button = QPushButton("👤 F5 - Fiado")
+
+        self.payment_buttons_list = [
+            self.cash_button, self.credit_button, self.debit_button, self.pix_button
+        ]
+
+        self.payment_buttons_map = {
             "Dinheiro": self.cash_button, "Crédito": self.credit_button,
             "Débito": self.debit_button, "PIX": self.pix_button
         }
-        for btn in self.payment_buttons.values():
+
+        for btn in self.payment_buttons_list:
+            btn.setObjectName("paymentMethodButton")
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             btn.clicked.connect(self.on_payment_method_selected)
+
+        self.credit_sale_button.setObjectName("creditSaleButton")
 
         payment_grid.addWidget(self.cash_button, 0, 0)
         payment_grid.addWidget(self.credit_button, 0, 1)
         payment_grid.addWidget(self.debit_button, 1, 0)
         payment_grid.addWidget(self.pix_button, 1, 1)
-        main_layout.addLayout(payment_grid)
+        
+        main_layout.addWidget(payment_methods_frame)
+        main_layout.addWidget(self.credit_sale_button)
 
         # --- Amount Input ---
         self.amount_paid_input = QLineEdit(placeholderText="Valor a adicionar")
         self.amount_paid_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.amount_paid_input.setFont(QFont("Arial", 20, QFont.Weight.Bold))
-        # Validator for currency input (e.g., 123.45 or 123,45)
         validator = QDoubleValidator(0.00, 99999.99, 2)
         validator.setNotation(QDoubleValidator.Notation.StandardNotation)
         self.amount_paid_input.setValidator(validator)
@@ -154,25 +168,35 @@ class PaymentDialog(QDialog):
             QListWidget::item:alternate {
                 background-color: #3a5064;
             }
-            QPushButton {
+            
+            /* --- Modern Payment Buttons --- */
+            QPushButton#paymentMethodButton {
                 background-color: #34495e;
                 color: #ecf0f1;
                 border: 2px solid #4a627a;
+                padding: 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 16px;
+            }
+            QPushButton#paymentMethodButton:hover {
+                background-color: #4a627a;
+                border-color: #5b7d9c;
+            }
+            QPushButton#paymentMethodButton:checked {
+                background-color: #16a085;
+                border-color: #1abc9c;
+                color: white;
+            }
+
+            /* --- Other Buttons --- */
+            QPushButton#addPaymentButton {
+                background-color: #2980b9;
+                border: none;
                 padding: 12px;
                 border-radius: 8px;
                 font-weight: bold;
                 font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4a627a;
-            }
-            QPushButton:checked {
-                background-color: #16a085;
-                border-color: #1abc9c;
-            }
-            QPushButton#addPaymentButton {
-                background-color: #2980b9;
-                border: none;
             }
             QPushButton#addPaymentButton:hover {
                 background-color: #3498db;
@@ -180,6 +204,10 @@ class PaymentDialog(QDialog):
             QPushButton#finalizeButton {
                 background-color: #27ae60;
                 border: none;
+                padding: 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
             }
             QPushButton#finalizeButton:hover {
                 background-color: #2ecc71;
@@ -187,9 +215,24 @@ class PaymentDialog(QDialog):
             QPushButton#removePaymentButton {
                 background-color: #c0392b;
                 border: none;
+                padding: 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
             }
             QPushButton#removePaymentButton:hover {
                 background-color: #e74c3c;
+            }
+            QPushButton#creditSaleButton {
+                background-color: #f39c12;
+                border: none;
+                font-size: 16px;
+                padding: 15px;
+                border-radius: 8px;
+                font-weight: bold;
+            }
+            QPushButton#creditSaleButton:hover {
+                background-color: #f1c40f;
             }
             QPushButton:disabled {
                 background-color: #7f8c8d;
@@ -211,18 +254,32 @@ class PaymentDialog(QDialog):
         QShortcut(QKeySequence("F4"), self).activated.connect(lambda: self.pix_button.click())
         QShortcut(QKeySequence("P"), self).activated.connect(lambda: self.pix_button.click())
 
+        QShortcut(QKeySequence("F5"), self).activated.connect(self.credit_sale_button.click)
+
+        self.credit_sale_button.clicked.connect(self.on_credit_sale_clicked)
+
+    def on_credit_sale_clicked(self):
+        self.credit_sale_requested.emit()
+        self.accept() # Close the payment dialog
+
     def get_selected_payment_method(self):
-        for method, btn in self.payment_buttons.items():
+        for method, btn in self.payment_buttons_map.items():
             if btn.isChecked():
                 return method
         return None
 
     def on_payment_method_selected(self):
         method = self.get_selected_payment_method()
-        if method == "Dinheiro":
+        # Extract the core method name from the button text for logic
+        if method:
+            clean_method = method.split(' - ')[-1]
+        else:
+            clean_method = None
+
+        if clean_method == "Dinheiro":
             self.amount_paid_input.setFocus()
             self.amount_paid_input.selectAll()
-        elif method:
+        elif clean_method:
             # For other methods, assume full remaining amount
             self.amount_paid_input.setText(str(self.remaining_amount).replace('.', ','))
             self.amount_paid_input.setFocus()
@@ -241,7 +298,7 @@ class PaymentDialog(QDialog):
         amount_str = self.amount_paid_input.text().strip().replace(',', '.')
         
         # Special case for cash: if input is empty, assume exact remaining amount
-        if method == "Dinheiro" and not amount_str:
+        if "Dinheiro" in method and not amount_str:
             amount = self.remaining_amount
         else:
             try:
@@ -280,7 +337,9 @@ class PaymentDialog(QDialog):
         # Update payments list
         self.payments_list.clear()
         for p in self.payments:
-            item = QListWidgetItem(f"{p['method']}: R$ {p['amount']:.2f}")
+            # Display the method name without the shortcut key for cleanliness
+            display_method = p['method'].split(' - ')[-1] if ' - ' in p['method'] else p['method']
+            item = QListWidgetItem(f"{display_method}: R$ {p['amount']:.2f}")
             self.payments_list.addItem(item)
 
         # Update labels
@@ -314,8 +373,14 @@ class PaymentDialog(QDialog):
         total_paid = sum(p['amount'] for p in self.payments)
         change = total_paid - self.total_amount
 
+        # Clean up payment method names before sending
+        final_payments = []
+        for p in self.payments:
+            clean_method = p['method'].split(' - ')[-1] if ' - ' in p['method'] else p['method']
+            final_payments.append({'method': clean_method, 'amount': p['amount']})
+
         self.result_data = {
-            'payments': self.payments,
+            'payments': final_payments,
             'total_paid': total_paid,
             'change': change
         }

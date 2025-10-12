@@ -73,8 +73,8 @@ class SalesHistoryPage(QWidget):
         tables_layout = QHBoxLayout()
         
         self.sales_table = QTableWidget()
-        self.sales_table.setColumnCount(5)
-        self.sales_table.setHorizontalHeaderLabels(["ID", "Data", "Total (R$)", "Pagamento", "Operador"])
+        self.sales_table.setColumnCount(6)
+        self.sales_table.setHorizontalHeaderLabels(["ID Sessão", "Data", "Cliente", "Total (R$)", "Pagamento", "Operador"])
         self.sales_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.sales_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.sales_table.itemSelectionChanged.connect(self.display_sale_items)
@@ -138,13 +138,19 @@ class SalesHistoryPage(QWidget):
         total_value = 0
         for row, sale in enumerate(sales):
             self.sales_table.insertRow(row)
-            self.sales_table.setItem(row, 0, QTableWidgetItem(str(sale['id'])))
+            
+            # Usa o ID da sessão para exibição, mas armazena o ID global para lookups
+            display_id = str(sale.get('session_sale_id') if sale.get('session_sale_id') is not None else sale['id'])
+            id_item = QTableWidgetItem(display_id)
+            id_item.setData(Qt.ItemDataRole.UserRole, sale['id'])
+
+            self.sales_table.setItem(row, 0, id_item)
             self.sales_table.setItem(row, 1, QTableWidgetItem(sale['sale_date']))
-            self.sales_table.setItem(row, 2, QTableWidgetItem(f"{sale['total_amount']:.2f}"))
-            # Usar método de pagamento diretamente da consulta otimizada
+            self.sales_table.setItem(row, 2, QTableWidgetItem(sale.get('customer_name') or '--'))
+            self.sales_table.setItem(row, 3, QTableWidgetItem(f"{sale['total_amount']:.2f}"))
             payment_text = sale.get('payment_methods_str', 'N/A')
-            self.sales_table.setItem(row, 3, QTableWidgetItem(payment_text))
-            self.sales_table.setItem(row, 4, QTableWidgetItem(sale['username'] or 'N/A'))
+            self.sales_table.setItem(row, 4, QTableWidgetItem(payment_text))
+            self.sales_table.setItem(row, 5, QTableWidgetItem(sale['username'] or 'N/A'))
             total_value += sale['total_amount']
         
         self.total_sales_label.setText(f"<b>Total de Vendas:</b> R$ {total_value:.2f}")
@@ -159,20 +165,19 @@ class SalesHistoryPage(QWidget):
         selected_row = selected_rows[0].row()
         item = self.sales_table.item(selected_row, 0)
 
-        # Verificar se o item é uma mensagem ou um ID válido
-        if not item or not item.text().strip().isdigit():
+        # Pega o ID global da venda, que foi armazenado no item da tabela
+        sale_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+
+        if not sale_id:
             return
 
         try:
-            sale_id = int(item.text().strip())
-
             self.show_message_in_table(self.sale_details_table, "Carregando itens...")
             worker = Worker(db.get_items_for_sale, sale_id)
             worker.signals.finished.connect(self.populate_items_table)
             worker.signals.error.connect(lambda err: logging.error(f"Erro ao buscar itens da venda: {err}"))
             self.threadpool.start(worker)
         except ValueError:
-            # Se não conseguir converter para int, ignorar
             return
 
     def populate_items_table(self, items):

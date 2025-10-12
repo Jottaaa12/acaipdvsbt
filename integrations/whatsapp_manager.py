@@ -933,13 +933,18 @@ class WhatsAppWorker(QThread):
             elif msg_type == "message":
                 message_data = msg.get("data", {})
                 if message_data:
-                    response, recipient = self.manager.command_handler.process_command(message_data, self.manager)
-                    if response and recipient:
-                        self.manager.send_message(recipient, response, message_type='command_response')
+                    # A função process_command retorna uma LISTA de tuplas (response, recipient)
+                    responses = self.manager.command_handler.process_command(message_data, self.manager)
+                    if responses:
+                        for response, recipient in responses:
+                            if response and recipient:
+                                self.manager.send_message(recipient, response, message_type='command_response')
             elif msg_type == "incoming_command": # Manter compatibilidade se houver outro uso
-                response, recipient = self.manager.command_handler.process_command(msg.get("data", {}), self.manager)
-                if response and recipient:
-                    self.manager.send_message(recipient, response, message_type='command_response')
+                responses = self.manager.command_handler.process_command(msg.get("data", {}), self.manager)
+                if responses:
+                    for response, recipient in responses:
+                        if response and recipient:
+                            self.manager.send_message(recipient, response, message_type='command_response')
 
         except Exception as e:
             self.logger.log_error(f"Erro ao processar mensagem do bridge: {e}",

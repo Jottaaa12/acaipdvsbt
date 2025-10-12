@@ -17,6 +17,9 @@ from ui.cash_page import CashPage
 from ui.reports_page import ReportsPage
 from ui.user_management_page import UserManagementPage
 from ui.sales_history_page import SalesHistoryPage
+from ui.credit_management_page import CreditManagementPage
+from ui.customer_management_page import CustomerManagementPage
+from ui.stock_management_page import StockManagementPage
 from ui.audit_log_dialog import AuditLogDialog
 from ui.backup_dialog import BackupDialog
 from ui.log_console_dialog import LogConsoleDialog
@@ -94,7 +97,10 @@ class ModernSidebar(QFrame):
             ("dashboard", f"{IconTheme.DASHBOARD} Dashboard", "dashboard"),
             ("sales", f"{IconTheme.SALES} Vendas", "sales"),
             ("sales_history", f"{IconTheme.HISTORY} Histórico", "sales_history"),
+            ("credit", f"💳 Fiados", "credit"),
             ("products", f"{IconTheme.PRODUCTS} Produtos", "products"),
+            ("customers", f"👥 Clientes", "customers"),
+            ("stock", f"{IconTheme.PRODUCTS} Estoque", "stock"),
             ("reports", f"{IconTheme.REPORTS} Relatórios", "reports"),
             ("cash", f"{IconTheme.CASH} Caixa", "cash"),
             ("settings", f"{IconTheme.SETTINGS} Configurações", "settings"),
@@ -218,7 +224,10 @@ class ModernSidebar(QFrame):
             ("dashboard", f"{IconTheme.DASHBOARD} Dashboard"),
             ("sales", f"{IconTheme.SALES} Vendas"),
             ("sales_history", f"{IconTheme.HISTORY} Histórico"),
+            ("credit", f"💳 Fiados"),
             ("products", f"{IconTheme.PRODUCTS} Produtos"),
+            ("customers", f"👥 Clientes"),
+            ("stock", f"{IconTheme.PRODUCTS} Estoque"),
             ("reports", f"{IconTheme.REPORTS} Relatórios"),
             ("cash", f"{IconTheme.CASH} Caixa"),
             ("settings", f"{IconTheme.SETTINGS} Configurações"),
@@ -346,9 +355,9 @@ class ModernDashboard(QWidget):
         # --- Linha 0: KPIs ---
         kpis_layout = QHBoxLayout()
         kpis_layout.setSpacing(20)
-        self.create_kpi_card("revenue", "💰", "Faturamento Hoje", "R$ 0,00", ModernTheme.PRIMARY, kpis_layout)
-        self.create_kpi_card("sales_count", "🛒", "Vendas Hoje", "0", ModernTheme.SECONDARY, kpis_layout)
-        self.create_kpi_card("avg_ticket", "📊", "Ticket Médio", "R$ 0,00", ModernTheme.SUCCESS, kpis_layout)
+        self.create_kpi_card("revenue", "💰", "Faturamento na Sessão", "R$ 0,00", ModernTheme.PRIMARY, kpis_layout)
+        self.create_kpi_card("sales_count", "🛒", "Vendas na Sessão", "0", ModernTheme.SECONDARY, kpis_layout)
+        self.create_kpi_card("avg_ticket", "📊", "Ticket Médio da Sessão", "R$ 0,00", ModernTheme.SUCCESS, kpis_layout)
         grid_layout.addLayout(kpis_layout, 0, 0, 1, 2)
 
         # --- Linha 1: Gráficos ---
@@ -450,23 +459,33 @@ class ModernDashboard(QWidget):
         layout.addStretch()
         return widget
 
-    def update_dashboard_data(self):
+    def update_dashboard_data(self, cash_session=None):
         """Busca todos os dados e atualiza os componentes do dashboard."""
-        self.update_kpis()
+        self.update_kpis(cash_session)
         self.update_sales_by_hour_chart()
         self.update_sales_by_category_chart()
         self.update_latest_sales_table()
         self.update_peripherals_status()
 
-    def update_kpis(self):
+    def update_kpis(self, cash_session=None):
         try:
-            today_str = datetime.now().strftime('%Y-%m-%d')
-            summary = db.get_daily_summary(today_str)
-            self.kpi_labels["revenue"].setText(f"R$ {summary['total_revenue']:.2f}")
-            self.kpi_labels["sales_count"].setText(str(summary['total_sales_count']))
-            self.kpi_labels["avg_ticket"].setText(f"R$ {summary['average_ticket']:.2f}")
+            if cash_session:
+                num_sales, total_revenue = db.get_sales_summary_by_session(cash_session['id'])
+                avg_ticket = total_revenue / num_sales if num_sales > 0 else Decimal('0.00')
+                
+                self.kpi_labels["revenue"].setText(f"R$ {total_revenue:.2f}")
+                self.kpi_labels["sales_count"].setText(str(num_sales))
+                self.kpi_labels["avg_ticket"].setText(f"R$ {avg_ticket:.2f}")
+            else:
+                # Se não há sessão ativa, zera os KPIs
+                self.kpi_labels["revenue"].setText("R$ 0.00")
+                self.kpi_labels["sales_count"].setText("0")
+                self.kpi_labels["avg_ticket"].setText("R$ 0.00")
         except Exception as e:
-            logging.error(f"Erro ao atualizar KPIs: {e}", exc_info=True)
+            logging.error(f"Erro ao atualizar KPIs da sessão: {e}", exc_info=True)
+            self.kpi_labels["revenue"].setText("R$ 0.00")
+            self.kpi_labels["sales_count"].setText("0")
+            self.kpi_labels["avg_ticket"].setText("R$ 0.00")
 
     def update_sales_by_hour_chart(self):
         try:
@@ -611,6 +630,44 @@ class ModernMainWindow(QMainWindow):
         self.daily_refresh_timer = QTimer()
         self.daily_refresh_timer.timeout.connect(self.check_date_and_refresh)
         self.daily_refresh_timer.start(60000)  # Checa a cada 1 minuto
+
+        # Timer para checagem de status de crédito
+        self.credit_check_timer = QTimer()
+        self.credit_check_timer.timeout.connect(self.check_credit_status)
+        self.credit_check_timer.start(3600000) # Checa a cada hora
+        self.check_credit_status() # Checagem inicial
+    
+    def check_credit_status(self):
+        """Verifica o status dos fiados e atualiza a UI se necessário."""
+        try:
+            summary = db.get_credit_status_summary()
+            if summary and summary['overdue_count'] > 0:
+                credit_button = self.sidebar.menu_buttons.get('credit')
+                if credit_button:
+                    # Adiciona um indicador de alerta ao botão
+                    credit_button.setText(f"💳 Fiados ({summary['overdue_count']} Vencidos!)")
+                    credit_button.setStyleSheet("""
+                        QPushButton#sidebar_button {
+                            background-color: #d9534f; /* Vermelho */
+                            color: white;
+                            border: none;
+                            padding: 15px 20px;
+                            text-align: left;
+                            font-size: 14px;
+                            font-weight: 600;
+                            border-radius: 8px;
+                            margin: 2px 8px;
+                        }
+                    """)
+            else:
+                # Restaura o botão ao normal
+                credit_button = self.sidebar.menu_buttons.get('credit')
+                if credit_button:
+                    credit_button.setText("💳 Fiados")
+                    self.sidebar.set_active_button(self.content_area.currentWidget().objectName())
+
+        except Exception as e:
+            logging.error(f"Erro ao verificar status de crédito: {e}")
     
     def setup_ui(self):
         """Configura a interface principal"""
@@ -744,6 +801,18 @@ class ModernMainWindow(QMainWindow):
         self.pages["users"] = UserManagementPage()
         self.content_area.addWidget(self.pages["users"])
 
+        # Stock page
+        self.pages["stock"] = StockManagementPage()
+        self.content_area.addWidget(self.pages["stock"])
+
+        # Credit management page
+        self.pages["credit"] = CreditManagementPage(self.current_user)
+        self.content_area.addWidget(self.pages["credit"])
+
+        # Customer management page
+        self.pages["customers"] = CustomerManagementPage(self.current_user)
+        self.content_area.addWidget(self.pages["customers"])
+
     def on_products_changed(self):
         """Slot para recarregar dados quando os produtos são alterados."""
         if "sales" in self.pages:
@@ -764,14 +833,17 @@ class ModernMainWindow(QMainWindow):
             self.content_area.setCurrentWidget(self.pages[page_name])
             
             if page_name == "dashboard":
-                self.pages["dashboard"].update_dashboard_data()
+                self.pages["dashboard"].update_dashboard_data(self.current_cash_session)
 
             # Atualiza botão ativo na sidebar
             page_map = {
                 "dashboard": "dashboard",
                 "sales": "sales",
                 "sales_history": "sales_history",
+                "credit": "credit",
                 "products": "products",
+                "customers": "customers",
+                "stock": "stock",
                 "reports": "reports",
                 "cash": "cash",
                 "settings": "settings"
@@ -822,12 +894,14 @@ class ModernMainWindow(QMainWindow):
         """Verifica sessão de caixa atual"""
         self.current_cash_session = db.get_current_cash_session()
         self.update_status_bar()
+        if "dashboard" in self.pages:
+            self.pages["dashboard"].update_dashboard_data(self.current_cash_session)
     
     def update_data(self):
         """Atualiza dados do dashboard"""
         # self.check_cash_session() # Removido: agora é baseado em evento
         if "dashboard" in self.pages:
-            self.pages["dashboard"].update_dashboard_data()
+            self.pages["dashboard"].update_dashboard_data(self.current_cash_session)
 
     def check_date_and_refresh(self):
         """Verifica se o dia mudou e atualiza o dashboard se necessário."""

@@ -103,11 +103,22 @@ class CashClosingDialog(QDialog):
         sales_summary = report['sales']
         movements = report['movements']
 
+        # --- Novos dados de Fiado ---
+        session_date = session_data['open_time'].strftime('%Y-%m-%d')
+        credit_payments = db.get_credit_payments_by_period(session_date, session_date)
+        new_credit_sales = db.get_credit_sales_by_period(session_date, session_date)
+
         initial = Decimal(session_data['initial_amount'])
         cash_sales = sum(Decimal(s['total']) for s in sales_summary if s['payment_method'] == 'Dinheiro')
+        # Adiciona pagamentos de fiado recebidos em dinheiro ao total de vendas em dinheiro
+        cash_from_credit = sum(p['total_paid'] for p in credit_payments if p['payment_method'] == 'Dinheiro')
+        cash_sales += cash_from_credit
+
         other_sales = {s['payment_method']: Decimal(s['total']) for s in sales_summary if s['payment_method'] != 'Dinheiro'}
         supplies = sum(Decimal(m['amount']) for m in movements if m['type'] == 'suprimento')
         withdrawals = sum(Decimal(m['amount']) for m in movements if m['type'] == 'sangria')
+
+        total_weight_kg = db.get_total_weight_by_cash_session(self.session_id)
 
         expected_cash = initial + cash_sales + supplies - withdrawals
         
@@ -120,7 +131,10 @@ class CashClosingDialog(QDialog):
             "expected_cash": expected_cash,
             "session_info": session_data,
             "total_revenue": report['total_revenue'],
-            "total_after_sangria": report['total_after_sangria']
+            "total_after_sangria": report['total_after_sangria'],
+            "total_weight_kg": total_weight_kg,
+            "credit_payments": credit_payments, # Adicionado
+            "new_credit_sales": new_credit_sales # Adicionado
         }
 
     def show_final_report(self):
@@ -163,12 +177,20 @@ class CashClosingDialog(QDialog):
             f"(+) Vendas em Dinheiro:       {format_currency(self.expected_summary['cash_sales']).rjust(15)}\n"
             f"(+) Suprimentos:              {format_currency(self.expected_summary['supplies']).rjust(15)}\n"
             f"(-) Sangrias:                 {format_currency(self.expected_summary['withdrawals'], is_negative=True).rjust(15)}\n"
-            f"{'*'*50}\n"
-            f"(=) SALDO ESPERADO:           {format_currency(self.expected_summary['expected_cash']).rjust(15)}\n"
-            f"    SALDO CONTADO:            {format_currency(counted_cash).rjust(15)}\n"
-            f"{'*'*50}\n"
-            f"(=) DIFERENÇA:                {format_currency(difference).rjust(15)}\n"
+            f"{'='*50}\n"
+            f"(=) SALDO ESPERADO EM CAIXA:  {format_currency(self.expected_summary['expected_cash']).rjust(15)}\n"
+            f"    SALDO CONTADO EM CAIXA:   {format_currency(counted_cash).rjust(15)}\n"
+            f"{'-'*50}\n"
+            f"(=) DIFERENÇA DE CAIXA:       {format_currency(difference).rjust(15)}\n"
         )
+
+        credit_payments_header = "ENTRADAS POR PAGAMENTO DE FIADO".center(50, '-')
+        credit_payments_lines = ""
+        if self.expected_summary['credit_payments']:
+            for payment in self.expected_summary['credit_payments']:
+                credit_payments_lines += f"{payment['payment_method'].ljust(25)} {format_currency(payment['total_paid']).rjust(24)}\n"
+        else:
+            credit_payments_lines = "Nenhum pagamento de fiado recebido no dia.\n"
 
         other_sales_header = "VENDAS (OUTRAS FORMAS)".center(50, '-')
         other_sales_lines = ""
@@ -178,10 +200,23 @@ class CashClosingDialog(QDialog):
         else:
             other_sales_lines = "Nenhuma venda em outras formas de pagamento.\n"
 
+        new_credit_sales_header = "FIADOS CRIADOS NO DIA (A RECEBER)".center(50, '-')
+        new_credit_sales_lines = ""
+        if self.expected_summary['new_credit_sales']:
+            total_credit_today = Decimal('0')
+            for sale in self.expected_summary['new_credit_sales']:
+                new_credit_sales_lines += f"{sale['customer_name'][:24].ljust(25)} {format_currency(sale['amount']).rjust(24)}\n"
+                total_credit_today += sale['amount']
+            new_credit_sales_lines += f"{'-'*50}\n"
+            new_credit_sales_lines += f"Total Fiado Hoje: {format_currency(total_credit_today).rjust(33)}\n"
+        else:
+            new_credit_sales_lines = "Nenhuma venda a crédito criada no dia.\n"
+
         grand_total_header = "TOTAIS GERAIS".center(50, '-')
         grand_total_lines = (
             f"Faturamento Bruto (Todas Formas): {format_currency(self.expected_summary['total_revenue']).rjust(15)}\n"
             f"Faturamento - Sangrias:         {format_currency(self.expected_summary['total_after_sangria']).rjust(15)}\n"
+            f"Total de Açaí Vendido (kg):     {format(self.expected_summary.get('total_weight_kg', 0.0), '.3f').rjust(15)}\n"
         )
 
         obs_header = "OBSERVAÇÕES".center(50, '-')
@@ -192,8 +227,12 @@ class CashClosingDialog(QDialog):
             f"{session_details}\n"
             f"{summary_header}\n"
             f"{summary_lines}"
+            f"{credit_payments_header}\n"
+            f"{credit_payments_lines}\n"
             f"{other_sales_header}\n"
             f"{other_sales_lines}\n"
+            f"{new_credit_sales_header}\n"
+            f"{new_credit_sales_lines}\n"
             f"{grand_total_header}\n"
             f"{grand_total_lines}\n"
             f"{obs_header}\n"

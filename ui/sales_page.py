@@ -13,6 +13,7 @@ import database as db
 from hardware.scale_handler import ScaleHandler
 from hardware.printer_handler import PrinterHandler
 from ui.payment_dialog import PaymentDialog
+from ui.credit_dialog import CreditDialog
 from ui.product_search_dialog import ProductSearchDialog
 from ui.theme import ModernTheme
 from utils import get_data_path
@@ -26,6 +27,7 @@ class SalesPage(QWidget):
         self.scale_handler = scale_handler
         self.printer_handler = printer_handler
         self.current_sale_items = []
+        self.current_sale_customer_name = None # Rastreia o cliente da venda atual
         self.last_known_weight = 0.0
         self.scale_error_count = 0
         
@@ -351,7 +353,8 @@ class SalesPage(QWidget):
             self.current_sale_items.append({
                 'id': product_data['id'], 'barcode': product_data['barcode'], 'description': product_data['description'], 
                 'quantity': quantity, 'unit_price': product_data['price'], 'total_price': quantity * product_data['price'], 
-                'sale_type': product_data['sale_type']
+                'sale_type': product_data['sale_type'],
+                'peso_kg': quantity if product_data['sale_type'] == 'weight' else 0
             })
         self.update_sale_display()
         self.product_code_input.setFocus() # Foco automático no input
@@ -405,64 +408,98 @@ class SalesPage(QWidget):
         if self.current_sale_items and QMessageBox.question(self, "Confirmar", "Deseja cancelar a venda atual?", 
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             self.current_sale_items.clear()
+            self.current_sale_customer_name = None # Limpa o cliente
             self.update_sale_display()
 
     def open_payment_dialog(self):
+        if not self.is_cash_session_open(): return
         if not self.current_sale_items: return
         
         total_amount = sum(item['total_price'] for item in self.current_sale_items)
         dialog = PaymentDialog(total_amount, self)
-        
+        # Connect the new signal
+        dialog.credit_sale_requested.connect(lambda: self.handle_credit_sale_request(total_amount))
+
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_data:
             result = dialog.result_data
             payments = result['payments']
             change_amount = result['change']
 
-            # Envia a lista de pagamentos e o troco
-            sale_success, sale_message_or_id = db.register_sale_with_user(
+            # Envia a venda para o banco de dados, agora incluindo o nome do cliente
+            sale_success, sale_data = db.register_sale_with_user(
                 total_amount, payments, self.current_sale_items, change_amount,
                 user_id=self.main_window.current_user["id"],
-                cash_session_id=self.main_window.current_cash_session["id"]
+                cash_session_id=self.main_window.current_cash_session["id"],
+                customer_name=self.current_sale_customer_name
             )
 
             if not sale_success:
-                QMessageBox.critical(self, "Erro ao Salvar Venda", f"A venda não foi registrada.\nErro: {sale_message_or_id}")
+                QMessageBox.critical(self, "Erro ao Salvar Venda", f"A venda não foi registrada.\nErro: {sale_data.get('error', 'Desconhecido')}")
                 return
 
             # Enviar notificação automática de venda via WhatsApp
             try:
                 from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
                 sales_notifier = get_whatsapp_sales_notifier()
-
-                # Preparar dados da venda para notificação
-                sale_data = {
-                    'id': sale_message_or_id if isinstance(sale_message_or_id, (int, str)) else 'N/A',
-                    'customer_name': 'Cliente',  # Pode ser expandido para capturar nome do cliente
-                    'total_amount': float(total_amount)
-                }
-
-                # Preparar detalhes dos pagamentos para notificação
-                payment_details = [{'method': p['method'], 'amount': float(p['amount'])} for p in payments]
-
-                # Enviar notificação (não bloqueante)
-                sales_notifier.notify_sale(sale_data, payment_details, float(change_amount))
+                # A função `notify_sale` espera `payment_details` e `change_amount` separadamente
+                payment_details = sale_data.get('payments', [])
+                change = sale_data.get('change_amount', 0.0)
+                sales_notifier.notify_sale(sale_data, payment_details, float(change))
             except Exception as e:
                 logging.warning(f"Erro ao enviar notificação de venda via WhatsApp: {e}")
-                # Não exibir erro para usuário pois a venda foi salva com sucesso
 
             QMessageBox.information(self, "Venda Registrada", "Venda registrada com sucesso!")
 
             if self.toggle_print_button.isChecked():
                 store_info = self.load_store_config()
-                # Create payment method string for receipt
                 payment_method_str = ", ".join([f"{p['method']}: R$ {p['amount']:.2f}" for p in payments])
-                sale_details = {'items': self.current_sale_items, 'total_amount': total_amount, 'payment_method': payment_method_str}
-                print_success, print_message = self.printer_handler.print_receipt(store_info, sale_details)
+                receipt_details = {'items': self.current_sale_items, 'total_amount': total_amount, 'payment_method': payment_method_str}
+                print_success, print_message = self.printer_handler.print_receipt(store_info, receipt_details)
                 if not print_success:
                     QMessageBox.warning(self, "Erro na Impressão", f"A venda foi salva, mas houve um erro ao imprimir.\nErro: {print_message}")
 
             self.current_sale_items.clear()
+            self.current_sale_customer_name = None # Limpa o cliente após a venda
             self.update_sale_display()
+
+    def handle_credit_sale_request(self, total_amount):
+        if not self.is_cash_session_open(): return
+        """Handles the request to process the sale as a credit sale (fiado)."""
+        credit_dialog = CreditDialog(total_amount, self.main_window.current_user['id'], self)
+        if credit_dialog.exec() == QDialog.DialogCode.Accepted:
+            # The credit sale was created successfully in the CreditDialog.
+            # Now, we register the original sale for auditing and stock purposes.
+            
+            selected_customer = credit_dialog.get_selected_customer()
+            customer_name = selected_customer['name'] if selected_customer else "Cliente Fiado"
+
+            # We pass an empty list of payments and zero change.
+            sale_success, sale_data = db.register_sale_with_user(
+                total_amount, [], self.current_sale_items, Decimal('0.00'),
+                user_id=self.main_window.current_user["id"],
+                cash_session_id=self.main_window.current_cash_session["id"],
+                customer_name=customer_name
+            )
+
+            if sale_success:
+                # Link the original sale to the credit sale
+                credit_sale_id = credit_dialog.credit_sale_id
+                sale_id = sale_data['id']
+                conn = db.get_db_connection()
+                try:
+                    conn.execute("UPDATE credit_sales SET sale_id = ? WHERE id = ?", (sale_id, credit_sale_id))
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                QMessageBox.information(self, "Venda Fiado Registrada", 
+                                        "A venda foi registrada no fiado do cliente com sucesso.")
+                self.current_sale_items.clear()
+                self.current_sale_customer_name = None
+                self.update_sale_display()
+            else:
+                QMessageBox.critical(self, "Erro Crítico", 
+                                     f"A venda a crédito foi criada, mas houve um erro ao registrar a venda original para baixa de estoque. Verifique o estoque manualmente.\nErro: {sale_data.get('error', 'Desconhecido')}")
 
     # --- Funções de Configuração (Restauradas) ---
     def load_store_config(self):
@@ -591,6 +628,7 @@ class SalesPage(QWidget):
         if ok and identifier:
             self.held_sales[identifier] = self.current_sale_items.copy()
             self.current_sale_items.clear()
+            self.current_sale_customer_name = None # Limpa o cliente ao salvar
             self.update_sale_display()
             return True
         return False
@@ -615,6 +653,7 @@ class SalesPage(QWidget):
                 if not self.hold_current_sale(): return # Aborta se o salvamento for cancelado
             elif clicked_btn == discard_btn:
                 self.current_sale_items.clear()
+                self.current_sale_customer_name = None
             else: # Cancelar
                 return
 
@@ -623,6 +662,7 @@ class SalesPage(QWidget):
         
         if ok and identifier:
             self.current_sale_items = self.held_sales[identifier]
+            self.current_sale_customer_name = identifier # Define o cliente
             del self.held_sales[identifier]
             self.update_sale_display()
 
