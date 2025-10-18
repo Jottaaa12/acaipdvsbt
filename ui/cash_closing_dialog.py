@@ -107,6 +107,8 @@ class CashClosingDialog(QDialog):
         session_date = session_data['open_time'].strftime('%Y-%m-%d')
         credit_payments = db.get_credit_payments_by_period(session_date, session_date)
         new_credit_sales = db.get_credit_sales_by_period(session_date, session_date)
+        all_pending_credit_sales = db.get_all_pending_credit_sales() # Todos os fiados pendentes
+
 
         initial = Decimal(session_data['initial_amount'])
         cash_sales = sum(Decimal(s['total']) for s in sales_summary if s['payment_method'] == 'Dinheiro')
@@ -134,7 +136,8 @@ class CashClosingDialog(QDialog):
             "total_after_sangria": report['total_after_sangria'],
             "total_weight_kg": total_weight_kg,
             "credit_payments": credit_payments, # Adicionado
-            "new_credit_sales": new_credit_sales # Adicionado
+            "new_credit_sales": new_credit_sales, # Adicionado
+            "all_pending_credit_sales": all_pending_credit_sales # Adicionado
         }
 
     def show_final_report(self):
@@ -212,6 +215,18 @@ class CashClosingDialog(QDialog):
         else:
             new_credit_sales_lines = "Nenhuma venda a crédito criada no dia.\n"
 
+        all_pending_credit_header = "TODOS OS FIADOS PENDENTES (A RECEBER)".center(50, '-')
+        all_pending_credit_lines = ""
+        if self.expected_summary['all_pending_credit_sales']:
+            total_pending_credit = Decimal('0')
+            for sale in self.expected_summary['all_pending_credit_sales']:
+                all_pending_credit_lines += f"{sale['customer_name'][:24].ljust(25)} {format_currency(sale['balance_due']).rjust(24)}\n"
+                total_pending_credit += sale['balance_due']
+            all_pending_credit_lines += f"{'-'*50}\n"
+            all_pending_credit_lines += f"Total Fiado Pendente: {format_currency(total_pending_credit).rjust(30)}\n"
+        else:
+            all_pending_credit_lines = "Nenhum fiado pendente encontrado.\n"
+
         grand_total_header = "TOTAIS GERAIS".center(50, '-')
         grand_total_lines = (
             f"Faturamento Bruto (Todas Formas): {format_currency(self.expected_summary['total_revenue']).rjust(15)}\n"
@@ -233,6 +248,8 @@ class CashClosingDialog(QDialog):
             f"{other_sales_lines}\n"
             f"{new_credit_sales_header}\n"
             f"{new_credit_sales_lines}\n"
+            f"{all_pending_credit_header}\n"
+            f"{all_pending_credit_lines}\n"
             f"{grand_total_header}\n"
             f"{grand_total_lines}\n"
             f"{obs_header}\n"

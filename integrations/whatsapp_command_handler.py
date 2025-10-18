@@ -604,7 +604,10 @@ class CommandHandler:
             if not admin_user:
                 return "❌ Operação falhou: Usuário 'admin' padrão não encontrado no sistema."
 
-            success, message = db.add_credit_payment(credit_sale_id, amount_paid, admin_user['id'], payment_method)
+            current_session = db.get_current_cash_session()
+            cash_session_id = current_session['id'] if current_session else None
+
+            success, message = db.add_credit_payment(credit_sale_id, amount_paid, admin_user['id'], payment_method, cash_session_id)
 
             if success:
                 new_sale_details = db.get_credit_sale_details(credit_sale_id)

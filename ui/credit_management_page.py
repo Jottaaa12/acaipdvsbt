@@ -12,9 +12,10 @@ import logging
 import pyqtgraph as pg
 
 class CreditManagementPage(QWidget):
-    def __init__(self, user, parent=None):
+    def __init__(self, user, cash_session, parent=None):
         super().__init__(parent)
         self.user = user
+        self.cash_session = cash_session
         self.setup_ui()
         self.load_credit_sales()
         self.update_dashboard()
@@ -178,7 +179,8 @@ class CreditManagementPage(QWidget):
         if dialog.exec():
             amount, payment_method = dialog.get_payment_data()
             if amount > 0:
-                success, result = add_credit_payment(credit_sale_id, amount, self.user['id'], payment_method)
+                cash_session_id = self.cash_session['id'] if self.cash_session else None
+                success, result = add_credit_payment(credit_sale_id, amount, self.user['id'], payment_method, cash_session_id)
                 if success:
                     QMessageBox.information(self, "Sucesso", "Pagamento registrado com sucesso!")
                     self.load_credit_sales()

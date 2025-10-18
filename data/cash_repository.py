@@ -2,6 +2,7 @@ import sqlite3
 import logging
 from decimal import Decimal
 from datetime import datetime
+import pytz
 from .connection import get_db_connection
 from .audit_repository import log_audit
 from utils import to_cents, to_reais
@@ -36,13 +37,24 @@ def open_cash_session(user_id, initial_amount):
     return session_id, "Caixa aberto com sucesso"
 
 def _parse_datetime(dt_string):
+    """Converte uma string de data/hora do banco de dados (assumida como UTC) para o fuso horário local."""
     if not dt_string:
         return None
+    
+    parsed_dt = None
     for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
         try:
-            return datetime.strptime(dt_string, fmt)
+            parsed_dt = datetime.strptime(dt_string, fmt)
+            break
         except ValueError:
             pass
+            
+    if parsed_dt:
+        # Assume the stored time is UTC, localize it, then convert to local time
+        local_timezone = pytz.timezone('America/Sao_Paulo')
+        utc_dt = pytz.utc.localize(parsed_dt)
+        return utc_dt.astimezone(local_timezone)
+        
     return None
 
 def get_current_cash_session():
@@ -252,6 +264,32 @@ def get_cash_session_report(session_id):
             count['total_value'] = to_reais(count['total_value'])
         counts_list.append(count)
 
+    # Vendas a Crédito (Fiado) Criadas na Sessão
+    credit_sales_created_rows = conn.execute('''
+        SELECT c.name as customer_name, cr.amount as amount
+        FROM credit_sales cr
+        JOIN customers c ON cr.customer_id = c.id
+        LEFT JOIN sales s ON cr.sale_id = s.id
+        WHERE s.cash_session_id = ?
+    ''', (session_id,)).fetchall()
+    credit_sales_created_list = [
+        {'customer_name': row['customer_name'], 'amount': to_reais(row['amount'])} 
+        for row in credit_sales_created_rows
+    ]
+
+    # Pagamentos de Crédito (Fiado) Recebidos na Sessão
+    credit_payments_received_rows = conn.execute('''
+        SELECT c.name as customer_name, p.amount_paid as total_paid, p.payment_method
+        FROM credit_payments p
+        JOIN credit_sales cr ON p.credit_sale_id = cr.id
+        JOIN customers c ON cr.customer_id = c.id
+        WHERE p.cash_session_id = ?
+    ''', (session_id,)).fetchall()
+    credit_payments_received_list = [
+        {'customer_name': row['customer_name'], 'total_paid': to_reais(row['total_paid']), 'payment_method': row['payment_method']} 
+        for row in credit_payments_received_rows
+    ]
+
     conn.close()    
     total_revenue = sum(item['total'] for item in sales_list)
     total_sangria = sum(m['amount'] for m in movements_list if m['type'] == 'sangria')
@@ -264,7 +302,10 @@ def get_cash_session_report(session_id):
         'counts': counts_list,
         'total_revenue': total_revenue,
         'total_after_sangria': total_revenue - total_sangria,
-        'total_weight_kg': total_weight_kg
+        'total_weight_kg': total_weight_kg,
+        'credit_sales_created': credit_sales_created_list,
+        'credit_payments_received': credit_payments_received_list,
+        'observations': session_dict.get('observations', '')
     }
 
 def get_sales_by_cash_session(session_id):

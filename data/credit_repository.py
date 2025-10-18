@@ -156,6 +156,73 @@ def get_credit_sale_details(credit_sale_id):
 
     return sale_details
 
+
+def get_credit_sales_by_period(start_date, end_date):
+    """Busca todas as vendas a crédito (fiados) criadas em um período específico."""
+    conn = get_db_connection()
+    query = """
+        SELECT cs.id, cs.amount, cs.status, cs.created_date, c.name as customer_name
+        FROM credit_sales cs
+        JOIN customers c ON cs.customer_id = c.id
+        WHERE DATE(cs.created_date) BETWEEN ? AND ?
+        ORDER BY cs.created_date DESC
+    """
+    rows = conn.execute(query, (start_date, end_date)).fetchall()
+    conn.close()
+
+    sales = []
+    for row in rows:
+        sale = dict(row)
+        sale['amount'] = to_reais(sale['amount'])
+        sales.append(sale)
+    return sales
+
+def get_credit_payments_by_period(start_date, end_date):
+    """Busca todos os pagamentos de fiados recebidos em um período específico."""
+    conn = get_db_connection()
+    query = """
+        SELECT p.payment_method, SUM(p.amount_paid) as total_paid
+        FROM credit_payments p
+        JOIN credit_sales cs ON p.credit_sale_id = cs.id
+        WHERE DATE(p.payment_date) BETWEEN ? AND ?
+        GROUP BY p.payment_method
+    """
+    rows = conn.execute(query, (start_date, end_date)).fetchall()
+    conn.close()
+
+    payments = []
+    for row in rows:
+        payment = dict(row)
+        payment['total_paid'] = to_reais(payment['total_paid'])
+        payments.append(payment)
+    return payments
+
+def get_all_pending_credit_sales():
+    """Busca todos os fiados com status 'pending' ou 'partially_paid'."""
+    conn = get_db_connection()
+    query = """
+        SELECT cs.id, cs.amount, cs.status, cs.created_date, c.name as customer_name,
+               (SELECT COALESCE(SUM(amount_paid), 0) FROM credit_payments WHERE credit_sale_id = cs.id) as total_paid_cents
+        FROM credit_sales cs
+        JOIN customers c ON cs.customer_id = c.id
+        WHERE cs.status IN ('pending', 'partially_paid')
+        ORDER BY cs.created_date DESC
+    """
+    rows = conn.execute(query).fetchall()
+    conn.close()
+
+    sales = []
+    for row in rows:
+        sale = dict(row)
+        total_amount = to_reais(sale['amount'])
+        total_paid = to_reais(sale['total_paid_cents'])
+        sale['amount'] = total_amount
+        sale['total_paid'] = total_paid
+        sale['balance_due'] = total_amount - total_paid
+        sales.append(sale)
+    return sales
+
+
 def get_credit_sales(status_filter=None):
     """Busca todas as vendas a crédito, com opção de filtro por status."""
     conn = get_db_connection()
@@ -238,16 +305,16 @@ def get_credit_status_summary():
         'pending_count': pending_count or 0
     }
 
-def add_credit_payment(credit_sale_id, amount_paid, user_id, payment_method):
+def add_credit_payment(credit_sale_id, amount_paid, user_id, payment_method, cash_session_id=None):
     """Adiciona um pagamento a uma venda a crédito."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         amount_paid_cents = to_cents(Decimal(str(amount_paid)))
         cursor.execute('''
-            INSERT INTO credit_payments (credit_sale_id, amount_paid, user_id, payment_method)
-            VALUES (?, ?, ?, ?)
-        ''', (credit_sale_id, amount_paid_cents, user_id, payment_method))
+            INSERT INTO credit_payments (credit_sale_id, amount_paid, user_id, payment_method, cash_session_id)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (credit_sale_id, amount_paid_cents, user_id, payment_method, cash_session_id))
         
         # Atualiza o status da venda a crédito
         cursor.execute('''

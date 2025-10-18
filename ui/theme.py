@@ -455,19 +455,19 @@ class ModernTheme:
                 color: {ModernTheme.WHITE};
                 padding-bottom: 10px;
             }}
-            QLabel#remainingLabel, QLabel#changeLabel {
+            QLabel#remainingLabel, QLabel#changeLabel {{
                 padding: 5px;
                 border-radius: 5px;
-            }
-            QLabel#remainingLabel[status="warning"] {
+            }}
+            QLabel#remainingLabel[status=\"warning\"] {{
                 background-color: {ModernTheme.WARNING};
-            }
-            QLabel#remainingLabel[status="success"] {
+            }}
+            QLabel#remainingLabel[status=\"success\"] {{
                 background-color: {ModernTheme.SUCCESS};
-            }
-            QLabel#changeLabel[status="success"] {
+            }}
+            QLabel#changeLabel[status=\"success\"] {{
                 background-color: {ModernTheme.SUCCESS_LIGHT};
-            }
+            }}
             QLineEdit {{
                 background-color: {ModernTheme.DARK_LIGHT};
                 border: 1px solid {ModernTheme.GRAY};
@@ -530,7 +530,7 @@ class ModernTheme:
                 font-size: 14px;
             }}
             QPushButton#finalizeButton:hover {{
-                background-color: {ModernTheme.SUCCESS_LIGHTER};
+                background-color: {ModernTheme.SUCCESS_LIGHT};
             }}
             QPushButton#removePaymentButton {{
                 background-color: {ModernTheme.ERROR};

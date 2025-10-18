@@ -5,3 +5,4 @@ pyqtgraph
 requests
 pywin32
 qrcode[pil]
+pytz

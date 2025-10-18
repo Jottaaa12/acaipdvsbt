@@ -257,6 +257,16 @@ def is_any_migration_needed():
         if is_credit_sales_constraint_broken():
             return True
 
+        # Verificação 8: Coluna cash_session_id em credit_payments
+        try:
+            cursor.execute("PRAGMA table_info(credit_payments)")
+            credit_payments_columns = [col['name'] for col in cursor.fetchall()]
+            if 'cash_session_id' not in credit_payments_columns:
+                return True
+        except sqlite3.OperationalError:
+            # Tabela pode não existir, o que é ok, será criada depois.
+            pass
+
         return False
     finally:
         conn.close()
@@ -453,6 +463,25 @@ def fix_credit_sales_status_constraint():
     finally:
         conn.close()
 
+def add_cash_session_id_to_credit_payments():
+    """MIGRATION 8: Adiciona a coluna 'cash_session_id' à tabela 'credit_payments'."""
+    logging.info("Executando migração: Adicionar coluna 'cash_session_id' a 'credit_payments'...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(credit_payments)")
+        columns = [column['name'] for column in cursor.fetchall()]
+        if 'cash_session_id' not in columns:
+            cursor.execute("ALTER TABLE credit_payments ADD COLUMN cash_session_id INTEGER REFERENCES cash_sessions(id) ON DELETE SET NULL")
+            logging.info("   ✅ Coluna 'cash_session_id' adicionada à tabela 'credit_payments'.")
+        else:
+            logging.info("   ✅ Coluna 'cash_session_id' já existe em 'credit_payments'. Nenhuma ação necessária.")
+    except sqlite3.Error as e:
+        logging.error(f"   ❌ Erro ao adicionar coluna 'cash_session_id' a 'credit_payments': {e}")
+    finally:
+        conn.commit()
+        conn.close()
+
 def run_all_migrations():
     """Executa todas as migrações de banco de dados em sequência."""
     logging.info("🔧 Verificando necessidade de todas as migrações...")
@@ -485,6 +514,9 @@ def run_all_migrations():
 
     # Migração 7: Corrigir a constraint de status em credit_sales
     fix_credit_sales_status_constraint()
+
+    # Migração 8: Adicionar cash_session_id a credit_payments
+    add_cash_session_id_to_credit_payments()
 
     logging.info("🎉 Processo de migração finalizado.")
 

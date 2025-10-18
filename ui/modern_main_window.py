@@ -765,7 +765,7 @@ class ModernMainWindow(QMainWindow):
         self.content_area.addWidget(self.pages["stock"])
 
         # Credit management page
-        self.pages["credit"] = CreditManagementPage(self.current_user)
+        self.pages["credit"] = CreditManagementPage(self.current_user, self.current_cash_session)
         self.content_area.addWidget(self.pages["credit"])
 
         # Customer management page

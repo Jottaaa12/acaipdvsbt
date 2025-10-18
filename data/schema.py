@@ -205,8 +205,10 @@ def create_tables():
                 payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_id INTEGER NOT NULL,
                 payment_method TEXT NOT NULL, -- Dinheiro, PIX, Cartão, etc.
+                cash_session_id INTEGER, -- Sessão de caixa em que o pagamento foi recebido
                 FOREIGN KEY (credit_sale_id) REFERENCES credit_sales(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (cash_session_id) REFERENCES cash_sessions(id) ON DELETE SET NULL
             )
         ''')
 

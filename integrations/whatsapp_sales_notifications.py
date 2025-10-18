@@ -5,7 +5,7 @@ Integra com o sistema de vendas para enviar notificações quando vendas são re
 import json
 import os
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
 
@@ -24,6 +24,7 @@ class WhatsAppSalesNotifier:
         self.config = get_whatsapp_config()
         self._notification_settings_path = get_data_path('whatsapp_sales_notifications.json')
         self._load_notification_settings()
+        self._recent_sale_ids = {}
 
     def _load_notification_settings(self):
         """Carrega configurações de notificações."""
@@ -73,6 +74,23 @@ class WhatsAppSalesNotifier:
             bool: True se notificou com sucesso
         """
         try:
+            # Anti-duplication check
+            sale_id = sale_data.get('id')
+            now = datetime.now()
+
+            # Clean up old entries from the cache (older than 1 minute)
+            cleanup_time = now - timedelta(minutes=1)
+            keys_to_delete = [k for k, v in self._recent_sale_ids.items() if v < cleanup_time]
+            for k in keys_to_delete:
+                del self._recent_sale_ids[k]
+
+            # Block if notified within the last 15 seconds
+            if sale_id in self._recent_sale_ids:
+                time_since_notification = now - self._recent_sale_ids[sale_id]
+                if time_since_notification < timedelta(seconds=15):
+                    logging.warning(f"Tentativa de notificação duplicada bloqueada para a venda ID: {sale_id}")
+                    return True  # Return True to signal success and prevent re-queueing
+
             if not db.are_notifications_globally_enabled():
                 logging.info("Envio de notificação de venda ignorado (desativado globalmente).")
                 return True
@@ -85,11 +103,10 @@ class WhatsAppSalesNotifier:
             min_value = self.notification_settings.get('minimum_sale_value', 0.0)
             if float(sale_data.get('total_amount', 0)) < min_value:
                 return True
-
-            # Verificar delay entre notificações
-            delay = self.notification_settings.get('notification_delay', 0)
-            if delay > 0 and not self._can_send_notification(delay):
-                return True
+            
+            # Add sale ID to cache before sending
+            if sale_id:
+                self._recent_sale_ids[sale_id] = now
 
             # Construir mensagem detalhada
             message = self._build_sale_message(sale_data, payment_details, change_amount)
@@ -110,10 +127,6 @@ class WhatsAppSalesNotifier:
                         logging.warning(f"Falha ao enviar notificação para {phone}: {result.get('error')}")
                 except Exception as e:
                     logging.error(f"Erro ao enviar notificação para {phone}: {e}", exc_info=True)
-
-            # Registrar hora da última notificação
-            self.notification_settings['last_notification_times']['sale'] = datetime.now().isoformat()
-            self._save_notification_settings()
 
             return success_count > 0
 
@@ -169,6 +182,8 @@ class WhatsAppSalesNotifier:
             sales = report.get('sales', [])
             movements = report.get('movements', [])
             total_weight_kg = report.get('total_weight_kg', 0.0)
+            credit_sales_created = report.get('credit_sales_created', [])
+            credit_payments_received = report.get('credit_payments_received', [])
 
             # --- Formatação da Mensagem ---
             user_name = session.get('username', 'N/A')
@@ -190,30 +205,38 @@ class WhatsAppSalesNotifier:
             total_revenue = sum(Decimal(s['total']) for s in sales)
             sales_summary += f"*Total em Vendas:* R$ {total_revenue:.2f}\n"
 
-            # Adiciona o total de açaí vendido
             if total_weight_kg > 0:
                 sales_summary += f"⚖️ *Total de Açaí Vendido:* {total_weight_kg:.3f} kg\n"
 
-            # Movimentações de Caixa
+            # Movimentações de Caixa Detalhadas
             movements_summary = "\n*Movimentações de Caixa:*\n"
-            suprimentos = [m for m in movements if m['type'] == 'suprimento']
-            sangrias = [m for m in movements if m['type'] == 'sangria']
-            
             if not movements:
                 movements_summary += "_Nenhuma movimentação registrada._\n"
-            if suprimentos:
-                total_suprimentos = sum(Decimal(m['amount']) for m in suprimentos)
-                movements_summary += f"➕ *Total Suprimentos:* R$ {total_suprimentos:.2f}\n"
-            if sangrias:
-                total_sangrias = sum(Decimal(m['amount']) for m in sangrias)
-                movements_summary += f"➖ *Total Sangrias:* R$ {total_sangrias:.2f}\n"
+            else:
+                for move in movements:
+                    symbol = '➕' if move['type'] == 'suprimento' else '➖'
+                    movements_summary += f"{symbol} {move['type'].capitalize()}: R$ {move['amount']:.2f} ({move['reason']})\n"
+
+            # Resumo de Fiado (Crédito)
+            credit_summary = "\n📝 *RESUMO DE FIADO (CRÉDITO)* 📝\n"
+            if not credit_sales_created and not credit_payments_received:
+                credit_summary += "_Nenhuma operação de fiado na sessão._\n"
+            else:
+                if credit_sales_created:
+                    credit_summary += "*Novos Fiados no Dia:*\n"
+                    for credit in credit_sales_created:
+                        credit_summary += f"  - {credit['customer_name']}: R$ {credit['amount']:.2f}\n"
+                if credit_payments_received:
+                    credit_summary += "*Pagamentos de Fiado Recebidos:*\n"
+                    for payment in credit_payments_received:
+                        credit_summary += f"  - {payment['customer_name']}: R$ {payment['total_paid']:.2f} ({payment['payment_method']})\n"
 
             # Fechamento e Diferença
             diff_symbol = "⚠️" if difference != 0 else "✅"
             diff_text = f"Sobra: +R$ {difference:.2f}" if difference > 0 else f"Falta: -R$ {abs(difference):.2f}" if difference < 0 else "Sem diferença"
 
             # Observações
-            observations = session.get('observations')
+            observations = report.get('observations', '')
             obs_summary = f"\n*Observações:*\n_{observations}_\n" if observations else ""
 
             message = (
@@ -223,7 +246,8 @@ class WhatsAppSalesNotifier:
                 f"👤 *Operador:* {user_name}\n"
                 f"🕰️ *Período:* {open_time} às {close_time}\n\n"
                 f"{sales_summary}"
-                f"{movements_summary}\n"
+                f"{movements_summary}"
+                f"{credit_summary}\n"
                 f"*Resumo Financeiro:*\n"
                 f"  - Saldo Inicial: R$ {initial:.2f}\n"
                 f"  - Valor Esperado: R$ {expected:.2f}\n"
@@ -353,21 +377,7 @@ class WhatsAppSalesNotifier:
 
         return recipients
 
-    def _can_send_notification(self, delay_seconds: int) -> bool:
-        """Verifica se pode enviar notificação baseado no delay."""
-        try:
-            last_time_str = self.notification_settings.get('last_notification_times', {}).get('sale')
-            if not last_time_str:
-                return True
 
-            last_time = datetime.fromisoformat(last_time_str)
-            time_diff = (datetime.now() - last_time).total_seconds()
-
-            return time_diff >= delay_seconds
-
-        except Exception as e:
-            logging.error(f"Erro ao verificar delay de notificação: {e}", exc_info=True)
-            return True
 
     def _get_store_name(self) -> str:
         """Obtém nome da loja."""
