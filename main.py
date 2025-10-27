@@ -176,12 +176,15 @@ class PDVApplication:
         if self.current_user.get('role') == 'gerente':
             try:
                 from integrations.whatsapp_manager import WhatsAppManager
-                logging.info("Iniciando conexao automatica com o WhatsApp...")
+                
+                logging.info("Iniciando integrações (WhatsApp)...")
+                
+                # Inicia a conexão automática com o WhatsApp
                 whatsapp_manager = WhatsAppManager.get_instance()
                 if not whatsapp_manager.is_ready:
                     whatsapp_manager.connect()
             except Exception as e:
-                logging.error(f"Erro ao iniciar conexao automatica com o WhatsApp: {e}")
+                logging.error(f"Erro ao iniciar integrações automáticas: {e}")
     
     def setup_logging(self, log_slot):
         # Configura o sistema de logging

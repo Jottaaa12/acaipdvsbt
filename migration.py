@@ -244,17 +244,30 @@ def is_any_migration_needed():
             # A tabela pode não existir ainda, o que é normal.
             pass
 
+        # Verificação para credit_sales_old: Se credit_sales_old existe, migração é necessária.
+        try:
+            cursor.execute("PRAGMA table_info(credit_sales_old)")
+            logging.warning("Detectada tabela 'credit_sales_old'. Migração de fiados será executada.")
+            logging.debug("DEBUG: is_any_migration_needed - Returning True due to credit_sales_old.") # NEW LOG
+            return True
+        except sqlite3.OperationalError:
+            # Tabela credit_sales_old não existe.
+            pass
+
         # Verificação 6: Coluna customer_id em credit_sales
+        credit_sales_exists = False
         try:
             cursor.execute("PRAGMA table_info(credit_sales)")
             credit_sales_columns = [col['name'] for col in cursor.fetchall()]
+            credit_sales_exists = True
             if 'customer_id' not in credit_sales_columns:
                 return True
         except sqlite3.OperationalError:
-            # Tabela pode não existir, o que é ok, será criada depois.
+            # Tabela credit_sales não existe.
             pass
-        # Verificação 7: Constraint de status em credit_sales
-        if is_credit_sales_constraint_broken():
+
+        # Verificação 7: Constraint de status em credit_sales (só se a tabela credit_sales existir)
+        if credit_sales_exists and is_credit_sales_constraint_broken():
             return True
 
         # Verificação 8: Coluna cash_session_id em credit_payments
@@ -370,27 +383,51 @@ def fix_credit_sales_status_constraint():
     try:
         # Verifica se a tabela existe
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='credit_sales'")
-        if not cursor.fetchone():
-            logging.info("   ✅ Tabela 'credit_sales' não existe, será criada do zero. Nenhuma migração necessária.")
+        credit_sales_exists_in_db = cursor.fetchone()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='credit_sales_old'")
+        credit_sales_old_exists_in_db = cursor.fetchone()
+
+        logging.debug(f"DEBUG: fix_credit_sales_status_constraint - Initial state:")
+        logging.debug(f"DEBUG:   credit_sales_exists_in_db: {credit_sales_exists_in_db}")
+        logging.debug(f"DEBUG:   credit_sales_old_exists_in_db: {credit_sales_old_exists_in_db}")
+
+        source_table_name = None
+        if credit_sales_old_exists_in_db:
+            source_table_name = "credit_sales_old"
+            logging.info("   ⚠️ Tabela 'credit_sales_old' encontrada. Priorizando migração a partir dela.")
+            # Se credit_sales também existe (criada vazia por create_tables), precisamos removê-la
+            if credit_sales_exists_in_db:
+                logging.warning("   ⚠️ Tabela 'credit_sales' vazia detectada. Removendo para migrar de 'credit_sales_old'.")
+                cursor.execute("DROP TABLE credit_sales")
+                credit_sales_exists_in_db = None # Marca como não existente após remoção
+        elif credit_sales_exists_in_db:
+            source_table_name = "credit_sales"
+        
+        if not source_table_name:
+            logging.info("   ✅ Nenhuma tabela de fiado existente para migrar. Será criada do zero. Nenhuma migração necessária.")
             return
 
-        # Verifica se a migração é necessária (ou seja, se a coluna customer_name existe)
-        cursor.execute("PRAGMA table_info(credit_sales)")
+        # Verifica se a migração é necessária (ou seja, se a coluna customer_name existe na tabela fonte)
+        cursor.execute(f"PRAGMA table_info({source_table_name})")
         columns = [col['name'] for col in cursor.fetchall()]
-        if 'customer_name' not in columns:
-            logging.info("   ✅ Tabela 'credit_sales' já está no formato correto. Nenhuma migração necessária.")
+        
+        # Se a fonte é credit_sales_old, sempre migrar, pois sua existência já indica um estado incompleto.
+        # Se a fonte é credit_sales, verificar se ela já está no formato correto.
+        if source_table_name == "credit_sales" and 'customer_name' not in columns and 'customer_id' in columns:
+            logging.info(f"   ✅ Tabela '{source_table_name}' já está no formato correto. Nenhuma migração necessária.")
             return
 
-        logging.info("   ⚠️ Tabela 'credit_sales' está em formato antigo. Iniciando processo de migração de dados...")
+        logging.info(f"   ⚠️ Tabela '{source_table_name}' está em formato antigo. Iniciando processo de migração de dados...")
 
-        # Passo 1: Adicionar a coluna customer_id se ela não existir.
+        # Passo 1: Adicionar a coluna customer_id se ela não existir na tabela fonte.
         if 'customer_id' not in columns:
             logging.info("      Adicionando a coluna 'customer_id'...")
-            cursor.execute("ALTER TABLE credit_sales ADD COLUMN customer_id INTEGER")
+            cursor.execute(f"ALTER TABLE {source_table_name} ADD COLUMN customer_id INTEGER")
         
         # Passo 2: Popular customer_id a partir de customer_name.
         logging.info("      Populando 'customer_id' a partir de 'customer_name'...")
-        cursor.execute("SELECT id, customer_name FROM credit_sales WHERE customer_id IS NULL")
+        cursor.execute(f"SELECT id, customer_name FROM {source_table_name} WHERE customer_id IS NULL")
         sales_to_update = cursor.fetchall()
         updated_count = 0
         not_found_customers = set()
@@ -405,7 +442,7 @@ def fix_credit_sales_status_constraint():
             customer = cursor.fetchone()
 
             if customer:
-                cursor.execute("UPDATE credit_sales SET customer_id = ? WHERE id = ?", (customer['id'], sale['id']))
+                cursor.execute(f"UPDATE {source_table_name} SET customer_id = ? WHERE id = ?", (customer['id'], sale['id']))
                 updated_count += 1
             else:
                 not_found_customers.add(customer_name)
@@ -418,7 +455,7 @@ def fix_credit_sales_status_constraint():
         # Passo 3: Reconstruir a tabela para impor NOT NULL e remover customer_name.
         logging.info("      Reconstruindo a tabela 'credit_sales' com o esquema final...")
 
-        cursor.execute('ALTER TABLE credit_sales RENAME TO credit_sales_temp_migration')
+        cursor.execute(f'ALTER TABLE {source_table_name} RENAME TO credit_sales_temp_migration')
 
         # Criar a nova tabela com o esquema correto
         cursor.execute('''
@@ -482,6 +519,36 @@ def add_cash_session_id_to_credit_payments():
         conn.commit()
         conn.close()
 
+def add_quantity_and_stock_columns():
+    """MIGRATION 9: Adiciona as colunas 'quantity' e 'stock' à tabela 'products' se não existirem."""
+    logging.info("Executando migração: Adicionar colunas 'quantity' e 'stock' a 'products'...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(products)")
+        columns = [column['name'] for column in cursor.fetchall()]
+        
+        if 'stock' not in columns:
+            cursor.execute("ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0")
+            logging.info("   ✅ Coluna 'stock' adicionada à tabela 'products'.")
+        else:
+            logging.info("   ✅ Coluna 'stock' já existe em 'products'.")
+
+        if 'quantity' not in columns:
+            cursor.execute("ALTER TABLE products ADD COLUMN quantity INTEGER NOT NULL DEFAULT 0")
+            logging.info("   ✅ Coluna 'quantity' adicionada à tabela 'products'.")
+            # Copia os valores de 'stock' para 'quantity' para manter a consistência
+            cursor.execute("UPDATE products SET quantity = stock")
+            logging.info("   ✅ Valores da coluna 'stock' copiados para 'quantity'.")
+        else:
+            logging.info("   ✅ Coluna 'quantity' já existe em 'products'.")
+            
+    except sqlite3.Error as e:
+        logging.error(f"   ❌ Erro ao adicionar colunas 'quantity' e 'stock' a 'products': {e}")
+    finally:
+        conn.commit()
+        conn.close()
+
 def run_all_migrations():
     """Executa todas as migrações de banco de dados em sequência."""
     logging.info("🔧 Verificando necessidade de todas as migrações...")
@@ -517,6 +584,9 @@ def run_all_migrations():
 
     # Migração 8: Adicionar cash_session_id a credit_payments
     add_cash_session_id_to_credit_payments()
+
+    # Migração 9: Adicionar colunas 'quantity' e 'stock' a 'products'
+    add_quantity_and_stock_columns()
 
     logging.info("🎉 Processo de migração finalizado.")
 

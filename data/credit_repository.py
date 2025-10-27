@@ -1,4 +1,5 @@
 import sqlite3
+import logging
 from decimal import Decimal
 from .connection import get_db_connection
 from .audit_repository import log_audit
@@ -362,3 +363,37 @@ def update_credit_sale_status(credit_sale_id, new_status, user_id):
         return False, f"Erro de banco de dados: {e}"
     finally:
         conn.close()
+
+def get_customer_by_phone(phone):
+    """Busca um cliente pelo seu número de telefone (correspondência exata)."""
+    if not phone:
+        return None
+    conn = get_db_connection()
+    row = conn.execute('SELECT * FROM customers WHERE phone = ?', (phone,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    customer = dict(row)
+    customer['credit_limit'] = to_reais(customer['credit_limit'])
+    return customer
+
+def associate_sale_to_credit(credit_sale_id, sale_id):
+    """Associa o ID de uma venda a um registro de fiado existente."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE credit_sales SET sale_id = ? WHERE id = ?", (sale_id, credit_sale_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            logging.info(f"Venda ID {sale_id} associada com sucesso ao fiado ID {credit_sale_id}.")
+            return True
+        else:
+            logging.warning(f"Nenhum fiado encontrado com o ID {credit_sale_id} para associar à venda ID {sale_id}.")
+            return False
+    except sqlite3.Error as e:
+        logging.error(f"Erro de banco de dados ao associar venda ao fiado: {e}")
+        conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()

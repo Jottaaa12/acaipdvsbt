@@ -164,12 +164,25 @@ class HardwareWidget(QWidget):
         scale_layout.addWidget(QLabel("Stop Bits:"), 5, 0)
         scale_layout.addWidget(self.scale_stopbits_combo, 5, 1)
         
-        test_button = QPushButton("Testar Conexão com a Balança")
+        test_button = QPushButton("Testar e Aplicar Conexão")
         scale_layout.addWidget(test_button, 7, 0, 1, 2)
-        
         test_button.clicked.connect(self.test_scale_connection)
+
+        self.stop_scale_button = QPushButton("Parar Busca Contínua")
+        self.stop_scale_button.setStyleSheet("background-color: #e74c3c; color: white;")
+        scale_layout.addWidget(self.stop_scale_button, 8, 0, 1, 2)
+        self.stop_scale_button.clicked.connect(self.stop_scale_search)
         
         return scale_group
+
+    def stop_scale_search(self):
+        """Para a thread de comunicação com a balança."""
+        try:
+            self.scale_handler.stop()
+            QMessageBox.information(self, "Busca Interrompida", 
+                                    "A busca contínua pela balança foi interrompida com sucesso.")
+        except Exception as e:
+            QMessageBox.warning(self, "Erro", f"Ocorreu um erro ao tentar parar a busca pela balança: {e}")
 
     def load_hardware_config_to_ui(self):
         config = self.config_manager.load_config()

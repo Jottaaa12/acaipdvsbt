@@ -10,6 +10,7 @@ import json
 import os
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import database as db
+from data.credit_repository import associate_sale_to_credit # <-- ADICIONADO
 from hardware.scale_handler import ScaleHandler
 from hardware.printer_handler import PrinterHandler
 from ui.payment_dialog import PaymentDialog
@@ -71,8 +72,8 @@ class SalesPage(QWidget):
         # Exibe o aviso apenas se houver uma sessão de caixa aberta (em atendimento) e após 10 tentativas
         if self.main_window and self.main_window.current_cash_session and self.scale_error_count >= 10:
             QMessageBox.warning(self, "Problema com a Balança", 
-                "A balança pode estar desligada ou desconectada.\n\n"
-                "Por favor, verifique a conexão e tente novamente.\n"
+                "A balança pode estar desligada ou desconectada.\n\n" 
+                "Por favor, verifique a conexão e tente novamente.\n" 
                 "O sistema continuará tentando se reconectar.")
             self.scale_error_count = 0 # Reseta o contador para evitar spam de mensagens
 
@@ -487,12 +488,7 @@ class SalesPage(QWidget):
                 # Link the original sale to the credit sale
                 credit_sale_id = credit_dialog.credit_sale_id
                 sale_id = sale_data['id']
-                conn = db.get_db_connection()
-                try:
-                    conn.execute("UPDATE credit_sales SET sale_id = ? WHERE id = ?", (sale_id, credit_sale_id))
-                    conn.commit()
-                finally:
-                    conn.close()
+                associate_sale_to_credit(credit_sale_id, sale_id)
 
                 QMessageBox.information(self, "Venda Fiado Registrada", 
                                         "A venda foi registrada no fiado do cliente com sucesso.")

@@ -178,23 +178,28 @@ def create_tables():
             )
         ''')
 
-        logging.info("Criando tabela credit_sales...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS credit_sales (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer_id INTEGER NOT NULL,
-                sale_id INTEGER, -- Venda original (opcional, mas recomendado)
-                amount INTEGER NOT NULL, -- Valor total do fiado em centavos
-                status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'partially_paid', 'paid', 'cancelled')),
-                observations TEXT,
-                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                due_date DATE,
-                user_id INTEGER NOT NULL,
-                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
-                FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            )
-        ''')
+        # Verifica se credit_sales_old existe. Se sim, não cria credit_sales aqui, a migração cuidará disso.
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='credit_sales_old'")
+        if cursor.fetchone():
+            logging.info("Tabela 'credit_sales_old' detectada. Pulando a criação de 'credit_sales' para a migração.")
+        else:
+            logging.info("Criando tabela credit_sales...")
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS credit_sales (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_id INTEGER NOT NULL,
+                    sale_id INTEGER,
+                    amount INTEGER NOT NULL,
+                    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'partially_paid', 'paid', 'cancelled')),
+                    observations TEXT,
+                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    due_date DATE,
+                    user_id INTEGER NOT NULL,
+                    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+                    FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            ''')
 
         logging.info("Criando tabela credit_payments...")
         cursor.execute('''
@@ -235,6 +240,18 @@ def create_tables():
             )
         ''')
 
+
+        logging.info("Criando tabela pedidos_externos_pendentes...")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pedidos_externos_pendentes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                order_id TEXT UNIQUE NOT NULL, -- ID do pedido na plataforma de origem (ped_id)
+                order_data TEXT NOT NULL, -- JSON completo dos detalhes do pedido
+                status TEXT NOT NULL DEFAULT 'NEW', -- Status de visualização na UI (NEW, VIEWED)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         logging.info("Criando índices...")
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode);')

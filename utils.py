@@ -58,3 +58,12 @@ def get_data_path(filename):
         os.makedirs(data_path)
         
     return os.path.join(data_path, filename)
+
+def safe_decimal(value, default='0.0'):
+    """Converte um valor para Decimal de forma segura, retornando um padrão se o valor for None ou vazio."""
+    if value is None or value == '':
+        value = default
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError):
+        return Decimal(default)

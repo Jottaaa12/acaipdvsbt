@@ -382,8 +382,8 @@ class ModernDashboard(QWidget):
         plot_widget = pg.PlotWidget()
         plot_widget.setBackground('w')
         plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        plot_widget.getAxis('left').setLabel('Faturamento (R$)')
-        plot_widget.getAxis('bottom').setLabel('Hora do Dia')
+        plot_widget.getAxis('left').setLabel('Faturamento (R$)', color=ModernTheme.DARK)
+        plot_widget.getAxis('bottom').setLabel('Hora do Dia', color=ModernTheme.DARK)
         self.bar_graph_item = pg.BarGraphItem(x=[], height=[], width=0.6, brush=ModernTheme.PRIMARY)
         plot_widget.addItem(self.bar_graph_item)
         return plot_widget
@@ -432,7 +432,7 @@ class ModernDashboard(QWidget):
         return widget
 
     def update_dashboard_data(self, cash_session=None):
-        """Busca todos os dados e atualiza os componentes do dashboard."""
+        """Busca todos os dados e atualiza os componentes do dashboard."""""
         self.update_kpis(cash_session)
         self.update_sales_by_hour_chart()
         self.update_sales_by_category_chart()
@@ -678,7 +678,6 @@ class ModernMainWindow(QMainWindow):
         # Status bar
         self.setup_status_bar()
         
-
     
     def reload_hardware_handlers(self):
         """Recarrega os handlers de hardware quando o modo de operação muda."""
@@ -894,3 +893,4 @@ class ModernMainWindow(QMainWindow):
             else:
                 self.showFullScreen()
         super().keyPressEvent(event)
+
