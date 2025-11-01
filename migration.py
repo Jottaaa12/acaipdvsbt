@@ -15,6 +15,17 @@ from decimal import Decimal
 from utils import get_data_path
 import logging
 
+def _add_column_if_not_exists(cursor, table_name, column_name, column_def):
+    """Adiciona uma coluna a uma tabela se ela ainda não existir."""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = [row['name'] for row in cursor.fetchall()]
+    if column_name not in columns:
+        logging.info(f"Adicionando coluna '{column_name}' à tabela '{table_name}'...")
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+    else:
+        logging.info(f"Coluna '{column_name}' já existe em '{table_name}'. Pulando.")
+
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 DB_FILE = get_data_path('pdv.db')
@@ -174,6 +185,91 @@ def parse_payment_string(payment_string, total_amount):
 
     return payments_list
 
+def _run_migration_003_add_sync_columns():
+    """
+    Migração 003: Adiciona colunas para sincronização com a API web (Supabase).
+    """
+    logging.info("Executando migração 003: Adicionando colunas de sincronização...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Tabelas que precisam ser sincronizadas
+        tables_to_sync = [
+            'product_groups',
+            'products',
+            'payment_methods',
+            'users',
+            'customers',
+            'sales',
+            'sale_items',
+            'credit_sales',
+            'credit_payments',
+            'estoque_grupos',
+            'estoque_itens',
+            'cash_sessions' # Adicionado para correção
+        ]
+
+        for table in tables_to_sync:
+            logging.info(f"Processando tabela: {table}")
+
+            # 1. id_web: Armazena o ID do registro na nuvem (Supabase)
+            _add_column_if_not_exists(cursor, table, 'id_web', 'TEXT')
+
+            # Criar um índice único em id_web.
+            index_name = f"idx_{table}_id_web_unique"
+            cursor.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table}(id_web)")
+
+            # 2. sync_status: Controla o estado de sincronização
+            _add_column_if_not_exists(cursor, table, 'sync_status', "TEXT NOT NULL DEFAULT 'pending_create'")
+
+            # 3. last_modified_at: Timestamp da última modificação local
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns = [row['name'] for row in cursor.fetchall()]
+            if 'last_modified_at' not in columns:
+                logging.info(f"Adicionando coluna 'last_modified_at' à tabela '{table}'...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN last_modified_at TIMESTAMP")
+                cursor.execute(f"UPDATE {table} SET last_modified_at = CURRENT_TIMESTAMP")
+            else:
+                logging.info(f"Coluna 'last_modified_at' já existe em '{table}'.")
+
+            # 4. Criar Trigger para atualizar 'last_modified_at' em cada UPDATE
+            trigger_name = f"trg_{table}_update_last_modified"
+            cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+            cursor.execute(f"""
+                CREATE TRIGGER {trigger_name}
+                AFTER UPDATE ON {table}
+                FOR EACH ROW
+                BEGIN
+                    UPDATE {table}
+                    SET last_modified_at = CURRENT_TIMESTAMP
+                    WHERE id = OLD.id;
+                END;
+            """)
+
+            # 5. Criar Trigger para definir 'last_modified_at' em cada INSERT
+            insert_trigger_name = f"trg_{table}_insert_last_modified"
+            cursor.execute(f"DROP TRIGGER IF EXISTS {insert_trigger_name}")
+            cursor.execute(f"""
+                CREATE TRIGGER {insert_trigger_name}
+                AFTER INSERT ON {table}
+                FOR EACH ROW
+                BEGIN
+                    UPDATE {table}
+                    SET last_modified_at = CURRENT_TIMESTAMP
+                    WHERE id = NEW.id;
+                END;
+            """)
+
+            logging.info(f"Tabela '{table}' atualizada para sincronização.")
+
+        conn.commit()
+        logging.info("Migração 003 concluída com sucesso.")
+    except sqlite3.Error as e:
+        logging.error(f"   ❌ Erro na migração 003: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 def is_credit_sales_constraint_broken():
     """Verifica se a constraint de status da tabela credit_sales está quebrada."""
     conn = get_db_connection()
@@ -588,6 +684,9 @@ def run_all_migrations():
     # Migração 9: Adicionar colunas 'quantity' e 'stock' a 'products'
     add_quantity_and_stock_columns()
 
+    # Migração 3: Adicionar colunas de sincronização
+    _run_migration_003_add_sync_columns()
+
     logging.info("🎉 Processo de migração finalizado.")
 
 def fix_estoque_itens_schema():
@@ -688,6 +787,65 @@ def add_peso_kg_column():
         conn.commit()
         conn.close()
 
+
+def add_peso_kg_column():
+    """MIGRATION 4: Adiciona a coluna 'peso_kg' à tabela 'sale_items'."""
+    logging.info("Executando migração: Adicionar coluna 'peso_kg'...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(sale_items)")
+        columns = [column['name'] for column in cursor.fetchall()]
+        if 'peso_kg' not in columns:
+            cursor.execute("ALTER TABLE sale_items ADD COLUMN peso_kg REAL")
+            logging.info("   ✅ Coluna 'peso_kg' adicionada à tabela 'sale_items'.")
+        else:
+            logging.info("   ✅ Coluna 'peso_kg' já existe. Nenhuma ação necessária.")
+    except sqlite3.Error as e:
+        logging.error(f"   ❌ Erro ao adicionar coluna 'peso_kg': {e}")
+    finally:
+        conn.commit()
+        conn.close()
+
+
+def _run_migration_001_add_credit_sale_due_date(cursor):
+    logging.warning("Função de migração _run_migration_001_add_credit_sale_due_date não implementada.")
+    pass
+
+def _run_migration_002_add_stock_tables(cursor):
+    logging.warning("Função de migração _run_migration_002_add_stock_tables não implementada.")
+    pass
+
+def _run_migration_004_fix_missing_sync_columns(cursor):
+    logging.warning("Função de migração _run_migration_004_fix_missing_sync_columns não implementada.")
+    pass
+
+def _run_migration_005_add_last_sync_setting(cursor):
+    """
+    Migração 005: Adiciona a chave 'last_sync_timestamp' à tabela de settings
+    para controlar a sincronização de download.
+    """
+    logging.info("Executando migração 005: Adicionando 'last_sync_timestamp'...")
+
+    try:
+        cursor.execute('''
+            INSERT OR IGNORE INTO settings (key, value)
+            VALUES (?, ?)
+        ''', ('last_sync_timestamp', '1970-01-01T00:00:00+00:00'))
+        logging.info("Configuração 'last_sync_timestamp' adicionada com sucesso.")
+    except Exception as e:
+        logging.error(f"Erro ao adicionar 'last_sync_timestamp': {e}", exc_info=True)
+        raise
+
+    logging.info("Migração 005 concluída com sucesso.")
+
+MIGRATIONS = [
+    ('001_add_credit_sale_due_date', _run_migration_001_add_credit_sale_due_date),
+    ('002_add_stock_tables', _run_migration_002_add_stock_tables),
+    ('003_add_sync_columns', _run_migration_003_add_sync_columns),
+    ('004_fix_missing_sync_columns', _run_migration_004_fix_missing_sync_columns),
+    ('005_add_last_sync_setting', _run_migration_005_add_last_sync_setting), # <-- ADICIONAR
+]
 
 if __name__ == '__main__':
     run_all_migrations()

@@ -7,3 +7,4 @@ pywin32
 qrcode[pil]
 pytz
 Flask
+supabase

@@ -37,6 +37,10 @@ class ConfigManager:
                     "sales": False,
                     "cash_closing": False
                 }
+            },
+            "supabase": {
+                "url": "",
+                "key": ""
             }
         }
 

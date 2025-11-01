@@ -22,7 +22,7 @@ def register_sale(total_amount, payment_method, items):
             
             # Apenas atualiza o estoque para itens vendidos por unidade.
             if item.get('sale_type') == 'unit':
-                cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (item['quantity'], item['id']))
+                cursor.execute("UPDATE products SET stock = stock - ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END WHERE id = ?", (item['quantity'], item['id']))
         conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Erro ao registrar a venda: {e}", exc_info=True)
@@ -187,7 +187,7 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
                 if stock_check and stock_check[0] < item['quantity']:
                     raise sqlite3.Error(f"Estoque insuficiente para o produto: {item['description']}")
 
-                cursor.execute('UPDATE products SET stock = stock - ? WHERE id = ?', (float(item['quantity']), item['id']))
+                cursor.execute("UPDATE products SET stock = stock - ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END WHERE id = ?", (float(item['quantity']), item['id']))
 
         # Se já for uma lista (novo formato), usa diretamente
         payments_list = payments

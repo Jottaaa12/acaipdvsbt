@@ -73,6 +73,9 @@ def update_user(user_id, username=None, password=None, role=None, active=None):
     if not updates:
         return True, "Nenhuma alteração a ser feita."
 
+    # Sempre adicionar sync_status quando houver atualizações
+    updates.append('sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END')
+
     params.append(user_id)
     query = f'UPDATE users SET {", ".join(updates)} WHERE id = ?'
     

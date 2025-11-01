@@ -154,7 +154,10 @@ class CashPage(QWidget):
             self.status_label.setStyleSheet(f"background-color: {ModernTheme.SUCCESS}; color: white; padding: 8px; border-radius: 5px;")
             self.session_id_label.setText(f"#{session['id']}")
             self.operator_label.setText(session['username'])
-            self.open_time_label.setText(session['open_time'].strftime('%d/%m/%Y %H:%M'))
+            if session['open_time']:
+                self.open_time_label.setText(session['open_time'].strftime('%d/%m/%Y %H:%M'))
+            else:
+                self.open_time_label.setText("N/A")
             self.initial_amount_label.setText(format_currency(session['initial_amount']))
             self.status_details_widget.setVisible(True)
         else:
@@ -372,7 +375,8 @@ class CashPage(QWidget):
             username = session['username'] if session['username'] else "[Usuário Removido]"
             self.history_table.setItem(i, 0, QTableWidgetItem(str(session['id'])))
             self.history_table.setItem(i, 1, QTableWidgetItem(username))
-            self.history_table.setItem(i, 2, QTableWidgetItem(session['close_time'].strftime('%d/%m/%Y %H:%M')))
+            close_time_str = session['close_time'].strftime('%d/%m/%Y %H:%M') if session['close_time'] else "Em aberto"
+            self.history_table.setItem(i, 2, QTableWidgetItem(close_time_str))
             self.history_table.setItem(i, 3, diff_item)
 
     def on_history_session_selected(self):
@@ -394,13 +398,15 @@ class CashPage(QWidget):
         s = report['session']
         total_sales = sum(Decimal(p['total']) for p in report['sales'])
 
+        open_time_str = s['open_time'].strftime('%d/%m/%Y %H:%M') if s['open_time'] else "N/A"
+        close_time_str = s['close_time'].strftime('%d/%m/%Y %H:%M') if s['close_time'] else "Em aberto"
+
         html = f"""
         <h1>Relatório da Sessão #{s['id']}</h1>
         <p><b>Operador:</b> {s['username']}</p>
-        <p><b>Abertura:</b> {s['open_time'].strftime('%d/%m/%Y %H:%M')}</p>
-        <p><b>Fechamento:</b> {s['close_time'].strftime('%d/%m/%Y %H:%M')}</p>
-        <hr>
-        <h2>Resumo Financeiro</h2>
+        <p><b>Abertura:</b> {open_time_str}</p>
+        <p><b>Fechamento:</b> {close_time_str}</p>
+        <hr>"        <h2>Resumo Financeiro</h2>
         <table width='100%'>
             <tr><td>(+) Fundo de Troco:</td><td align='right'>{format_currency(s['initial_amount'])}</td></tr>
             <tr><td>(+) Total de Vendas:</td><td align='right'>{format_currency(total_sales)}</td></tr>
@@ -568,9 +574,10 @@ class CashPage(QWidget):
 
             # Criar mensagem baseada na ação
             if action == 'open':
+                open_time_str = current_session['open_time'].strftime('%d/%m/%Y %H:%M') if current_session['open_time'] else "N/A"
                 message = f"""✅ *CAIXA ABERTO*
 
-📅 Data/Hora: {current_session['open_time'].strftime('%d/%m/%Y %H:%M')}
+📅 Data/Hora: {open_time_str}
 👤 Operador: {current_session['username']}
 💰 Saldo Inicial: R$ {current_session['initial_amount']:.2f}
 🆔 Sessão: #{current_session['id']}
@@ -612,9 +619,10 @@ Caixa aberto com sucesso no sistema PDV."""
                         sales_breakdown += f"\n{icon} {method}: R$ {total:.2f}"
 
                 # Construir mensagem com detalhamento completo
+                close_time_str = session_data['close_time'].strftime('%d/%m/%Y %H:%M') if session_data['close_time'] else "Em aberto"
                 message = f"""❌ *CAIXA FECHADO*
 
-📅 Data/Hora: {session_data['close_time'].strftime('%d/%m/%Y %H:%M')}
+📅 Data/Hora: {close_time_str}
 👤 Operador: {session_data['username']}
 💰 Saldo Inicial: R$ {session_data['initial_amount']:.2f}
 💰 Total de Vendas: R$ {total_sales:.2f}

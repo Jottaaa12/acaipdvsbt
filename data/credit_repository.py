@@ -323,7 +323,8 @@ def add_credit_payment(credit_sale_id, amount_paid, user_id, payment_method, cas
             SET status = CASE
                 WHEN (SELECT SUM(amount_paid) FROM credit_payments WHERE credit_sale_id = ?) >= amount THEN 'paid'
                 ELSE 'partially_paid'
-            END
+            END,
+            sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END
             WHERE id = ?
         ''', (credit_sale_id, credit_sale_id))
         
@@ -347,7 +348,7 @@ def update_credit_sale_status(credit_sale_id, new_status, user_id):
 
     try:
         cursor.execute(
-            'UPDATE credit_sales SET status = ? WHERE id = ?',
+            'UPDATE credit_sales SET status = ?, sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END WHERE id = ?',
             (new_status, credit_sale_id)
         )
         conn.commit()
@@ -382,7 +383,7 @@ def associate_sale_to_credit(credit_sale_id, sale_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("UPDATE credit_sales SET sale_id = ? WHERE id = ?", (sale_id, credit_sale_id))
+        cursor.execute("UPDATE credit_sales SET sale_id = ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END WHERE id = ?", (sale_id, credit_sale_id))
         conn.commit()
         if cursor.rowcount > 0:
             logging.info(f"Venda ID {sale_id} associada com sucesso ao fiado ID {credit_sale_id}.")

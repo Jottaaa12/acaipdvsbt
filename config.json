@@ -38,5 +38,9 @@
             "barcode": "acai500"
         }
     ],
-    "hardware_mode": "production"
+    "hardware_mode": "production",
+    "supabase": {
+        "url": "https://clncykjzukfjxvqjbcgx.supabase.co",
+        "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbmN5a2p6dWtmanh2cWpiY2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NzUyNzcsImV4cCI6MjA3NzE1MTI3N30.UoHNsGHlmV0HQ1HHMyWRrqQiEQyups0CMefCeZ5zDKU"
+    }
 }

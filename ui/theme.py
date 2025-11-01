@@ -648,6 +648,7 @@ class IconTheme:
     PRINT = "🖨️"
     BACKUP = "💾"
     WITHDRAWAL = "➖"
+    SYNC = "🔄"
 
     # Ícones de status
     SUCCESS = "✅"

@@ -1,9 +1,8 @@
 # Conteúdo para integrations/whatsapp_command_handler.py
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 import database as db
-import stock_manager as sm
-import re
 from .whatsapp_config import get_whatsapp_config
 import os
 import json
@@ -33,11 +32,11 @@ class CommandHandler:
         self.authorized_managers = normalized_managers
         logging.info(f"Gerentes autorizados (normalizados) no WhatsApp: {self.authorized_managers}")
 
-    def process_command(self, command_data: dict, manager):
+    def process_command(self, command_data: dict, manager) -> tuple[str | None, str | None]:
         """
         Processa um comando, registra a auditoria e retorna a resposta e o destinatário.
         Recebe a instância do manager para acessar métodos de status e logging.
-        Retorna: Uma lista de tuplas (response_text, recipient_phone) ou None.
+        Retorna: (response_text, recipient_phone) ou (None, None)
         """
         sender_phone_raw = command_data.get('sender')
         command_text = command_data.get('text', '').strip()
@@ -46,7 +45,7 @@ class CommandHandler:
         validation = self.config.validate_phone(sender_phone_raw)
         if not validation['valid']:
             logging.warning(f"Número de remetente com formato inválido foi ignorado: {sender_phone_raw}")
-            return None
+            return None, None
         
         sender_phone = validation['normalized']
 
@@ -55,7 +54,7 @@ class CommandHandler:
             logging.warning(f"Comando de número não autorizado foi ignorado: {sender_phone} (Lista de autorizados: {self.authorized_managers})")
             # Log de tentativa de comando não autorizado
             manager.logger.log_command(sender=sender_phone, command=command_text, success=False, response_preview="Acesso negado")
-            return None
+            return None, None
 
         parts = command_text.split()
         command = parts[0].lower()
@@ -76,69 +75,79 @@ class CommandHandler:
             '/dashboard': self._handle_dashboard,
             '/produtos_vendidos': self._handle_produtos_vendidos,
             '/sistema': self._handle_sistema,
-            '/fiados': self._handle_fiados,
-            '/pagar': self._handle_pagar,
-            '/lembrete': self._handle_lembrete,
+            '/fiado': self._handle_fiado, # Novo comando
+            '/fiados': self._handle_fiado, # Alias
         }
 
         handler_func = command_map.get(command)
         if handler_func:
             # Passa o manager para handlers que precisam dele
-            if command in ['/status', '/logs', '/gerente', '/sistema', '/lembrete']:
+            if command in ['/status', '/logs', '/gerente', '/sistema']:
                 response = handler_func(args, manager=manager)
             else:
                 response = handler_func(args)
-            
-            # Garante que a resposta seja sempre uma lista de tuplas (mensagem, destinatário)
-            if not isinstance(response, list):
-                response = [(response, sender_phone)]
-            
-            final_responses = []
-            for msg, recipient in response:
-                # Se o destinatário for None, assume que a resposta é para o remetente original
-                final_recipient = recipient if recipient is not None else sender_phone
-                final_responses.append((msg, final_recipient))
-
             # Log de comando bem-sucedido
-            manager.logger.log_command(sender=sender_phone, command=command_text, success=True, response_preview=str(final_responses))
-            return final_responses
+            manager.logger.log_command(sender=sender_phone, command=command_text, success=True, response_preview=response)
         else:
             response = f"Comando '{command}' não reconhecido. Digite '/ajuda' para ver a lista de comandos."
             # Log de comando não reconhecido
             manager.logger.log_command(sender=sender_phone, command=command_text, success=False, response_preview="Comando não reconhecido")
-            return [(response, sender_phone)]
+
+        if response:
+            return response, sender_phone
+        
+        return None, None
+
+    def _handle_fiado(self, args: list):
+        """Lida com subcomandos para o sistema de fiado."""
+        if not args or args[0].lower() in ['listar', 'pendentes']:
+            return self._handle_fiado_listar()
+
+        subcommand = args[0].lower()
+        command_args = args[1:]
+
+        if subcommand == 'pago':
+            return self._handle_fiado_pagar(command_args)
+        elif subcommand == 'criar':
+            return self._handle_fiado_criar(command_args)
+        elif subcommand == 'detalhes':
+            return self._handle_fiado_detalhes(command_args)
+        elif subcommand == 'editar':
+            return self._handle_fiado_editar(command_args)
+        elif subcommand == 'excluir':
+            return self._handle_fiado_excluir(command_args)
+        else:
+            # Se nenhum subcomando conhecido, assume que é uma busca por nome
+            return self._handle_fiado_detalhes(args)
+
 
     def _handle_help(self, args):
         """Retorna a mensagem de ajuda com os comandos disponíveis."""
         return (
             "🤖 *Assistente Virtual PDV* 🤖\n\n"
             "Aqui estão os comandos que você pode usar:\n\n"
+            "💳 *FIADOS (CONTAS A RECEBER)*\n"
+            "  `*/fiados`* - Lista os fiados pendentes (com ID).\n"
+            "  `*/fiado pago <ID do fiado>`* - Marca um fiado como pago.\n"
+            "  `*/fiado detalhes <nome do cliente>`* - Mostra detalhes dos fiados de um cliente.\n"
+            "  `*/fiado criar \"Nome Cliente\" <valor>`* - Cria um novo fiado.\n"
+            "  `*/fiado editar <ID> <novo valor>`* - Edita o valor de um fiado.\n"
+            "  `*/fiado excluir <ID>`* - Exclui um fiado.\n\n"
             "📈 *DASHBOARD*\n"
             "  `*/dashboard`* - Resumo completo do dia.\n\n"
             "📊 *RELATÓRIOS*\n"
             "  `*/vendas <período>`* - Vendas do período (hoje, ontem, 7dias, etc.).\n"
             "  `*/produtos_vendidos <período>`* - Ranking de produtos mais vendidos.\n\n"
-            "💳 *CONTROLE DE FIADO*\n"
-            "  `*/fiados [cliente]`* - Lista os fiados pendentes (filtra por cliente se informado).\n"
-            "  `*/pagar <id_fiado> <valor> <método>`* - Registra um pagamento para um fiado.\n"
-            "  `*/lembrete <id_fiado>`* - Envia um lembrete de cobrança para o cliente.\n"
-            "  `*/fiado criar \"<nome cliente>\" <valor> [obs]`* - Cria um novo fiado.\n"
-            "  `*/fiado editar <id> <campo> <novo_valor>`* - Edita um fiado (campos: valor, vencimento, obs).\n"
-            "  `*/fiado cancelar <id>`* - Cancela um fiado.\n\n"
             "📦 *CAIXA*\n"
             "  `*/caixa status`* - Status detalhado do caixa atual.\n"
             "  `*/caixa fechar`* - Relatório de pré-fechamento.\n"
             "  `*/caixa sangria <valor> <motivo>`* - Registrar sangria.\n"
             "  `*/caixa suprimento <valor> <motivo>`* - Registrar suprimento.\n\n"
-            "📝 *PRODUTOS (VENDA)*\n"
-            "  `*/produto consultar <nome/cód>`* - Detalhes de um produto de venda.\n"
-            "  `*/produto alterar_preco <cód> <preço>`* - Altera o preço de um produto de venda.\n\n"
-            "📋 *ESTOQUE (INSUMOS)*\n"
-            "  `*/estoque grupos`* - Lista os grupos de insumos.\n"
-            "  `*/estoque ver`* - Lista todos os insumos por grupo.\n"
-            "  `*/estoque add <grupo> <unid> | <cód> \"<nome>\" <qtd>[; ...]`* - Adiciona múltiplos insumos a um grupo.\n"
-            "  `*/estoque baixa <cód1> <qtd1>, <cód2> <qtd2>`* - Dá baixa em um ou mais insumos.\n"
-            "  `*/estoque ajustar <cód> <nova_qtd>`* - Ajusta a quantidade de um insumo.\n\n"
+            "📝 *PRODUTOS E ESTOQUE*\n"
+            "  `*/produto consultar <nome/cód>`* - Detalhes de um produto.\n"
+            "  `*/produto alterar_preco <cód> <preço>`* - Altera o preço.\n"
+            "  `*/estoque baixo`* - Lista produtos com estoque baixo.\n"
+            "  `*/estoque ajustar <cód> <qtd>`* - Ajusta o estoque.\n\n"
             "⚙️ *ADMINISTRAÇÃO*\n"
             "  `*/gerente listar`* - Lista os gerentes.\n"
             "  `*/gerente adicionar <número>`* - Adiciona um gerente.\n"
@@ -151,6 +160,188 @@ class CommandHandler:
             "  `*/sistema limpar_sessao`* - Reinicia a conexão com o WhatsApp.\n\n"
             "ℹ️ Digite um comando para começar!"
         )
+
+    def _handle_fiado_listar(self):
+        """Lista os fiados pendentes."""
+        try:
+            sales = db.get_credit_sales(filters={'status': 'pending'})
+            if not sales:
+                return "✅ Nenhum fiado pendente encontrado."
+
+            response = "📝 *Fiados Pendentes*\n\n"
+            total_pending = Decimal('0')
+            for sale in sales:
+                total_pending += sale['amount']
+                response += f"- *ID {sale['id']}*: `{sale['customer_name']}` - R$ {sale['amount']:.2f} (desde {datetime.fromisoformat(sale['created_date']).strftime('%d/%m')})\n"
+            
+            response += f"\n*Total Pendente:* `R$ {total_pending:.2f}`"
+            return response
+        except Exception as e:
+            logging.error(f"Erro ao listar fiados via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro ao buscar a lista de fiados."
+
+    def _handle_fiado_pagar(self, args: list):
+        """Marca um fiado como pago usando o ID."""
+        if not args:
+            return "Uso: /fiado pago <ID do fiado>"
+
+        try:
+            credit_id = int(args[0])
+            
+            credit_sale = db.get_credit_sale_by_id(credit_id)
+            if not credit_sale:
+                return f"❌ Fiado com ID `{credit_id}` não encontrado."
+            if credit_sale['status'] != 'pending':
+                return f"ℹ️ O fiado de `{credit_sale['customer_name']}` (ID {credit_id}) já está com status '{credit_sale['status']}'."
+
+            admin_user = db.get_user_by_username('admin')
+            success, message = db.mark_credit_as_paid(credit_id, admin_user['id'])
+
+            if success:
+                from .whatsapp_sales_notifications import get_whatsapp_sales_notifier
+                notifier = get_whatsapp_sales_notifier()
+                paid_sale_data = db.get_credit_sale_by_id(credit_id)
+                if paid_sale_data:
+                    notifier.notify_credit_paid(paid_sale_data)
+                
+                return f"✅ Fiado de `R$ {credit_sale['amount']:.2f}` para `{credit_sale['customer_name']}` (ID {credit_id}) foi marcado como pago."
+            else:
+                return f"❌ Erro ao marcar fiado como pago: {message}"
+        except ValueError:
+            return "❌ ID inválido. O ID do fiado deve ser um número."
+        except Exception as e:
+            logging.error(f"Erro ao pagar fiado via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro interno ao processar o pagamento."
+
+    def _handle_fiado_criar(self, args: list):
+        """Cria um novo fiado."""
+        try:
+            # Extrai o nome do cliente (pode estar entre aspas)
+            if args[0].startswith('"'):
+                customer_name_parts = []
+                i = -1
+                for i, part in enumerate(args):
+                    customer_name_parts.append(part.strip('"'))
+                    if part.endswith('"'):
+                        break
+                customer_name = " ".join(customer_name_parts)
+                remaining_args = args[i+1:]
+            else:
+                customer_name = args[0]
+                remaining_args = args[1:]
+
+            if len(remaining_args) < 1:
+                return 'Uso: /fiado criar "Nome Completo" <valor> [data_vencimento AAAA-MM-DD]'
+
+            amount = float(remaining_args[0].replace(',', '.'))
+            due_date = remaining_args[1] if len(remaining_args) > 1 else None
+
+            admin_user = db.get_user_by_username('admin')
+            success, credit_id = db.create_credit_sale(customer_name, amount, due_date, "Criado via WhatsApp", admin_user['id'])
+
+            if success:
+                from .whatsapp_sales_notifications import get_whatsapp_sales_notifier
+                notifier = get_whatsapp_sales_notifier()
+                new_sale_data = db.get_credit_sale_by_id(credit_id)
+                if new_sale_data:
+                    notifier.notify_credit_created(new_sale_data)
+                return f"✅ Novo fiado criado para `{customer_name}` no valor de `R$ {amount:.2f}` (ID: {credit_id})."
+            else:
+                return f"❌ Erro ao criar fiado: {credit_id}"
+        except (ValueError, IndexError):
+            return 'Uso inválido. Exemplo: /fiado criar "João Silva" 50,00'
+        except Exception as e:
+            logging.error(f"Erro ao criar fiado via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro interno ao criar o fiado."
+
+    def _handle_fiado_editar(self, args: list):
+        """Edita o valor de um fiado existente."""
+        if len(args) != 2:
+            return "Uso: /fiado editar <ID do fiado> <novo valor>"
+
+        try:
+            credit_id = int(args[0])
+            new_amount = float(args[1].replace(',', '.'))
+
+            admin_user = db.get_user_by_username('admin')
+            if not admin_user:
+                return "❌ Operação falhou: Usuário 'admin' não encontrado."
+
+            old_sale = db.get_credit_sale_by_id(credit_id)
+            if not old_sale:
+                return f"❌ Fiado com ID `{credit_id}` não encontrado."
+
+            success, message = db.update_credit_sale(
+                credit_id=credit_id,
+                customer_name=old_sale['customer_name'],
+                amount=new_amount,
+                due_date=old_sale['due_date'],
+                observations=old_sale['observations'],
+                user_id=admin_user['id']
+            )
+
+            if success:
+                return f"✅ Valor do fiado ID `{credit_id}` alterado de `R$ {old_sale['amount']:.2f}` para `R$ {new_amount:.2f}`."
+            else:
+                return f"❌ Erro ao editar fiado: {message}"
+        except ValueError:
+            return "❌ Uso inválido. Ex: /fiado editar 123 50,00"
+        except Exception as e:
+            logging.error(f"Erro ao editar fiado via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro interno ao editar o fiado."
+
+    def _handle_fiado_excluir(self, args: list):
+        """Exclui um fiado existente."""
+        if len(args) != 1:
+            return "Uso: /fiado excluir <ID do fiado>"
+
+        try:
+            credit_id = int(args[0])
+            admin_user = db.get_user_by_username('admin')
+            if not admin_user:
+                return "❌ Operação falhou: Usuário 'admin' não encontrado."
+
+            sale_to_delete = db.get_credit_sale_by_id(credit_id)
+            if not sale_to_delete:
+                return f"❌ Fiado com ID `{credit_id}` não encontrado."
+
+            success, message = db.delete_credit_sale(credit_id, admin_user['id'])
+
+            if success:
+                return f"🗑️ Fiado ID `{credit_id}` (Cliente: {sale_to_delete['customer_name']}, Valor: R$ {sale_to_delete['amount']:.2f}) foi excluído."
+            else:
+                return f"❌ Erro ao excluir fiado: {message}"
+        except ValueError:
+            return "❌ ID inválido. O ID deve ser um número."
+        except Exception as e:
+            logging.error(f"Erro ao excluir fiado via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro interno ao excluir o fiado."
+
+    def _handle_fiado_detalhes(self, args: list):
+        """Mostra detalhes dos fiados de um cliente."""
+        if not args:
+            return "Uso: /fiado detalhes <nome do cliente>"
+
+        customer_name = " ".join(args)
+        try:
+            sales = db.get_credit_sales(filters={'customer_name': customer_name})
+            if not sales:
+                return f"🔎 Nenhum fiado encontrado para '{customer_name}'."
+
+            response = f"🧾 *Detalhes de Fiados para {customer_name}*\n\n"
+            total_due = Decimal('0')
+            for sale in sales:
+                status_icon = "✅" if sale['status'] == 'paid' else "📝" if sale['status'] == 'pending' else "❌"
+                response += f"{status_icon} *ID {sale['id']}: R$ {sale['amount']:.2f}* ({sale['status']})\n"
+                response += f"   - Data: {datetime.fromisoformat(sale['created_date']).strftime('%d/%m/%Y')}\n"
+                if sale['status'] == 'pending':
+                    total_due += sale['amount']
+            
+            response += f"\n*Total Devido:* `R$ {total_due:.2f}`"
+            return response
+        except Exception as e:
+            logging.error(f"Erro ao buscar detalhes de fiado via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro ao buscar os detalhes."
 
     def _handle_notifications(self, args):
         """Ativa ou desativa as notificações."""
@@ -461,229 +652,6 @@ class CommandHandler:
         else:
             return f"Subcomando '/sistema {subcommand}' não reconhecido."
 
-    def _handle_fiados(self, args: list):
-        """Lida com subcomandos relacionados a fiados."""
-        if not args:
-            # Mantém o comportamento original de listar se nenhum subcomando for dado
-            return self._handle_fiados_listar([])
-
-        subcommand = args[0].lower()
-        command_args = args[1:]
-
-        if subcommand == 'listar':
-            return self._handle_fiados_listar(command_args)
-        elif subcommand == 'criar':
-            return self._handle_fiados_criar(command_args)
-        elif subcommand == 'editar':
-            return self._handle_fiados_editar(command_args)
-        elif subcommand == 'cancelar':
-            return self._handle_fiados_cancelar(command_args)
-        else:
-            # Se o primeiro argumento não for um subcomando conhecido, assume que é uma busca
-            return self._handle_fiados_listar(args)
-
-    def _handle_fiados_listar(self, args: list):
-        """Lista os fiados pendentes, com filtro opcional por cliente."""
-        try:
-            if not args:
-                # Lista todos os fiados pendentes e parcialmente pagos
-                sales = db.get_credit_sales(status_filter='pending')
-                sales += db.get_credit_sales(status_filter='partially_paid')
-            else:
-                # Filtra por nome do cliente
-                customer_name = " ".join(args)
-                all_sales = db.get_credit_sales(status_filter='pending')
-                all_sales += db.get_credit_sales(status_filter='partially_paid')
-                sales = [s for s in all_sales if customer_name.lower() in s['customer_name'].lower()]
-
-            if not sales:
-                return "✅ Nenhum fiado pendente encontrado." if not args else f"✅ Nenhum fiado pendente encontrado para o cliente '{customer_name}'."
-
-            response = "🧾 *Fiados Pendentes*\n\n"
-            for sale in sorted(sales, key=lambda x: x['customer_name']):
-                response += f"*ID:* `{sale['id']}` - *Cliente:* {sale['customer_name']}\n"
-                response += f"  - *Saldo Devedor:* `R$ {sale['balance_due']:.2f}`\n"
-                response += f"  - *Data:* {sale['created_date'][:10]}\n"
-            
-            return response.strip()
-        except Exception as e:
-            logging.error(f"Erro ao listar fiados via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao buscar os fiados."
-
-    def _handle_fiados_criar(self, args: list):
-        """Cria um novo fiado. Uso: /fiado criar \"<nome cliente>\" <valor> [obs]"""
-        try:
-            # Regex para capturar o nome entre aspas e o resto
-            match = re.match(r'^"([^"]+)"\s+([\d,.]+)(.*)$', " ".join(args))
-            if not match:
-                return 'Uso: /fiado criar "<nome do cliente>" <valor> [observações]'
-
-            customer_name, value_str, observations = match.groups()
-            value = float(value_str.replace(',', '.'))
-            observations = observations.strip() or None
-
-            # Busca pelo cliente
-            customers = db.search_customers(customer_name)
-            if not customers:
-                return f'❌ Cliente "{customer_name}" não encontrado. Cadastre o cliente primeiro.'
-            if len(customers) > 1:
-                return f'❌ Múltiplos clientes encontrados para "{customer_name}". Por favor, seja mais específico.'
-            
-            customer = customers[0]
-            admin_user = db.get_user_by_username('admin')
-
-            success, result = db.create_credit_sale(
-                customer_id=customer['id'],
-                amount=value,
-                user_id=admin_user['id'],
-                observations=observations
-            )
-
-            if success:
-                return f"✅ Novo fiado de `R$ {value:.2f}` criado com sucesso para o cliente *{customer['name']}* (ID do Fiado: {result})."
-            else:
-                return f"❌ Falha ao criar fiado: {result}"
-
-        except Exception as e:
-            logging.error(f"Erro ao criar fiado via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao criar o fiado."
-
-    def _handle_fiados_editar(self, args: list):
-        """Edita um fiado. Uso: /fiado editar <id> <campo> <novo_valor>"""
-        return "ℹ️ A função de editar fiado via WhatsApp ainda não foi implementada."
-
-    def _handle_fiados_cancelar(self, args: list):
-        """Cancela um fiado. Uso: /fiado cancelar <id>"""
-        try:
-            if len(args) != 1:
-                return "Uso: /fiado cancelar <id_do_fiado>"
-            
-            credit_sale_id = int(args[0])
-            admin_user = db.get_user_by_username('admin')
-
-            success, message = db.update_credit_sale_status(credit_sale_id, 'cancelled', admin_user['id'])
-
-            if success:
-                return f"✅ Fiado ID `{credit_sale_id}` foi cancelado com sucesso."
-            else:
-                return f"❌ Falha ao cancelar fiado: {message}"
-        except ValueError:
-            return "❌ ID do fiado inválido."
-        except Exception as e:
-            logging.error(f"Erro ao cancelar fiado via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao cancelar o fiado."
-
-    def _handle_pagar(self, args: list):
-        """Registra um pagamento para um fiado. Uso: /pagar <id_fiado> <valor> <método>"""
-        try:
-            if len(args) < 3:
-                return "Uso: /pagar <id_fiado> <valor> <método> (Ex: /pagar 123 50.00 Dinheiro)"
-
-            credit_sale_id = int(args[0])
-            amount_paid_str = args[1].replace(',', '.')
-            amount_paid = float(amount_paid_str)
-            payment_method = " ".join(args[2:])
-
-            # Valida o método de pagamento
-            valid_methods = [m['name'] for m in db.get_all_payment_methods()]
-            if payment_method not in valid_methods:
-                return f"❌ Método de pagamento '{payment_method}' inválido. Métodos válidos: {', '.join(valid_methods)}"
-
-            sale_details = db.get_credit_sale_details(credit_sale_id)
-            if not sale_details:
-                return f"❌ Fiado com ID '{credit_sale_id}' não encontrado."
-
-            if sale_details['status'] in ['paid', 'cancelled']:
-                return f"ℹ️ O fiado com ID '{credit_sale_id}' já está quitado ou cancelado."
-
-            balance_due = sale_details['balance_due']
-            if amount_paid > float(balance_due):
-                return f"❌ Valor do pagamento (R$ {amount_paid:.2f}) é maior que o saldo devedor (R$ {balance_due:.2f})."
-
-            admin_user = db.get_user_by_username('admin')
-            if not admin_user:
-                return "❌ Operação falhou: Usuário 'admin' padrão não encontrado no sistema."
-
-            current_session = db.get_current_cash_session()
-            cash_session_id = current_session['id'] if current_session else None
-
-            success, message = db.add_credit_payment(credit_sale_id, amount_paid, admin_user['id'], payment_method, cash_session_id)
-
-            if success:
-                new_sale_details = db.get_credit_sale_details(credit_sale_id)
-                response = f"✅ Pagamento de `R$ {amount_paid:.2f}` registrado para o fiado ID `{credit_sale_id}`.\n\n"
-                response += f"*Cliente:* {new_sale_details['customer_name']}\n"
-                if new_sale_details['status'] == 'paid':
-                    response += "*Status:* `QUITADO` 🎉"
-                else:
-                    response += f"*Novo Saldo Devedor:* `R$ {new_sale_details['balance_due']:.2f}`"
-                return response
-            else:
-                return f"❌ Falha ao registrar pagamento: {message}"
-
-        except ValueError:
-            return "❌ ID do fiado ou valor do pagamento inválido."
-        except Exception as e:
-            logging.error(f"Erro ao registrar pagamento de fiado via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao registrar o pagamento."
-
-    def _handle_lembrete(self, args: list, manager):
-        """Envia um lembrete de cobrança para o cliente de um fiado. Uso: /lembrete <id_fiado>"""
-        try:
-            if len(args) != 1:
-                return "Uso: /lembrete <id_fiado>"
-
-            credit_sale_id = int(args[0])
-            sale_details = db.get_credit_sale_details(credit_sale_id)
-
-            if not sale_details:
-                return f"❌ Fiado com ID '{credit_sale_id}' não encontrado."
-
-            if sale_details['status'] not in ['pending', 'partially_paid']:
-                return f"ℹ️ Este fiado já está quitado ou foi cancelado."
-
-            customer_id = sale_details['customer_id']
-            customer_details = db.get_customer_by_id(customer_id)
-            if not customer_details:
-                return f"❌ Cliente com ID '{customer_id}' não encontrado no sistema."
-
-            customer_phone = customer_details.get('phone')
-
-            if not customer_phone:
-                return f"❌ O cliente {sale_details['customer_name']} não possui um número de telefone cadastrado."
-
-            # Valida e normaliza o número do cliente
-            validation = self.config.validate_phone(customer_phone)
-            if not validation['valid']:
-                return f"❌ O número de telefone do cliente ({customer_phone}) é inválido."
-            
-            normalized_customer_phone = validation['normalized']
-
-            # Mensagem para o cliente
-            store_name = db.load_setting('store_name', 'nossa loja')
-            reminder_message = (
-                f"Olá, {sale_details['customer_name']}! 👋\n\n"
-                f"Este é um lembrete amigável sobre sua conta pendente em {store_name}.\n\n"
-                f"*Saldo Devedor:* R$ {sale_details['balance_due']:.2f}\n"
-                f"*Data da Compra:* {sale_details['created_date'][:10]}\n\n"
-                f"Agradecemos a sua atenção e preferência!"
-            )
-
-            # Mensagem de confirmação para o gerente
-            confirmation_message = f"✅ Lembrete enviado com sucesso para o cliente {sale_details['customer_name']} (Telefone: {normalized_customer_phone})."
-
-            # Retorna uma lista de tuplas (mensagem, destinatário)
-            return [
-                (reminder_message, normalized_customer_phone),
-                (confirmation_message, None) # O destinatário None será substituído pelo remetente original
-            ]
-
-        except ValueError:
-            return "❌ ID do fiado inválido."
-        except Exception as e:
-            logging.error(f"Erro ao enviar lembrete de fiado via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao enviar o lembrete."
-
     def _handle_gerente(self, args: list, manager):
         """Lida com subcomandos de gerenciamento de gerentes."""
         if not args:
@@ -762,9 +730,9 @@ class CommandHandler:
         return f"✅ Gerente `{normalized_number}` removido com sucesso."
 
     def _handle_estoque(self, args: list):
-        """Lida com subcomandos para o novo sistema de estoque de insumos."""
+        """Lida com subcomandos relacionados ao estoque."""
         if not args:
-            return "Uso: /estoque [ver|grupos|add|baixa|ajustar] <argumentos...>"
+            return "Uso: /estoque [grupos|ver|add|baixa|ajustar|baixo]"
 
         subcommand = args[0].lower()
         command_args = args[1:]
@@ -779,170 +747,166 @@ class CommandHandler:
             return self._handle_estoque_baixa(command_args)
         elif subcommand == 'ajustar':
             return self._handle_estoque_ajustar(command_args)
+        elif subcommand == 'baixo':
+            return self._handle_estoque_baixo()
         else:
             return f"Subcomando '/estoque {subcommand}' não reconhecido. Use '/ajuda' para ver as opções."
 
     def _handle_estoque_grupos(self):
-        """Lista os grupos de estoque de insumos."""
+        """Lista os grupos de estoque."""
         try:
-            groups = sm.get_all_stock_groups()
-            if not groups:
-                return "ℹ️ Nenhum grupo de estoque encontrado."
+            grupos = db.get_all_groups()
+            if not grupos:
+                return "Nenhum grupo de estoque encontrado."
             
-            response = "📂 *Grupos de Estoque (Insumos)*\n\n"
-            for group in groups:
-                response += f"- {group['nome']}\n"
+            response = "📂 *Grupos de Estoque:*\n"
+            for grupo in grupos:
+                response += f"- {grupo['nome']}\n"
             return response
         except Exception as e:
-            logging.error(f"Erro ao listar grupos de estoque via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao buscar os grupos."
+            logging.error(f"Erro ao listar grupos de estoque: {e}", exc_info=True)
+            return "❌ Erro ao buscar grupos de estoque."
 
     def _handle_estoque_ver(self):
-        """Lista todos os itens de estoque, organizados por grupo."""
+        """Lista todos os itens de estoque, agrupados."""
         try:
-            items = sm.get_all_stock_items()
-            if not items:
-                return "ℹ️ Nenhum item de estoque encontrado."
+            itens = db.get_stock_report()['stock_levels']
+            if not itens:
+                return "Nenhum item no estoque."
 
-            response = "📋 *Estoque de Insumos*\n"
+            response = "📦 *Itens em Estoque:*\n"
             current_group = None
-            for item in items:
-                if item['grupo_nome'] != current_group:
-                    current_group = item['grupo_nome']
+            for item in itens:
+                if item['group_name'] != current_group:
+                    current_group = item['group_name']
                     response += f"\n--- *{current_group}* ---\n"
-                response += f"({item['codigo']}) {item['nome']}: *{item['estoque_atual']}* {item['unidade_medida']}\n"
-            return response.strip()
+                response += f"({item['codigo']}) {item['nome']}: {item['estoque_atual']} {item['unidade_medida']}\n"
+            return response
         except Exception as e:
-            logging.error(f"Erro ao visualizar estoque via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao buscar o estoque."
+            logging.error(f"Erro ao visualizar estoque: {e}", exc_info=True)
+            return "❌ Erro ao buscar itens do estoque."
 
     def _handle_estoque_add(self, args: list):
-        """Adiciona múltiplos itens de estoque a um grupo. Formato: <grupo> <unid> | <cód> \"<nome>\" <qtd>; ..."""
+        """Adiciona um novo item ao estoque."""
+        # !estoque add [codigo] "[Nome do Item]" [Grupo] [Qtd. Inicial] [Unidade]
         try:
-            full_command = " ".join(args)
-            if '|' not in full_command:
-                return '❌ Formato inválido. Use: /estoque add <grupo> <unid> | <cód> "<nome>" <qtd>[; ...]'
+            if len(args) < 5:
+                return 'Uso: /estoque add <codigo> "<Nome>" <Grupo> <Qtd> <Unidade>'
 
-            header_part, items_part = [part.strip() for part in full_command.split('|', 1)]
-
-            # Processar o cabeçalho
-            header_args = header_part.split()
-            if len(header_args) != 2:
-                return "❌ Formato do cabeçalho inválido. Deve ser `<grupo> <unidade>`."
-            grupo_nome, unidade_medida = header_args
-
-            # Validar grupo
-            all_groups = sm.get_all_stock_groups()
-            target_group = next((g for g in all_groups if g['nome'].lower() == grupo_nome.lower()), None)
-            if not target_group:
-                return f"❌ Grupo '{grupo_nome}' não encontrado."
-            grupo_id = target_group['id']
-
-            # Processar os itens
-            items_to_add = [item.strip() for item in items_part.split(';') if item.strip()]
-            if not items_to_add:
-                return "❌ Nenhum item fornecido após o separador '|'."
-
-            success_log = []
-            error_log = []
-            item_regex = re.compile(r'^(\S+)\s+"([^"]+)"\s+(\d+)$')
-
-            for item_str in items_to_add:
-                match = item_regex.match(item_str)
-                if not match:
-                    error_log.append(f"'{item_str}' (formato inválido)")
-                    continue
-                
-                codigo, nome, qtd_str = match.groups()
-                
-                success, message = sm.add_stock_item(
-                    codigo=codigo.upper(),
-                    nome=nome,
-                    grupo_id=grupo_id,
-                    estoque_atual=int(qtd_str),
-                    estoque_minimo=0, # Padrão
-                    unidade_medida=unidade_medida
-                )
-                if success:
-                    success_log.append(f"'{nome}' ({codigo.upper()})")
-                else:
-                    error_log.append(f"'{nome}' ({message})" )
-
-            # Montar resposta final
-            response = "" 
-            if success_log:
-                response += f"✅ *Itens Adicionados ao Grupo '{grupo_nome}':*\n" + ", ".join(success_log) + ".\n"
-            if error_log:
-                response += f"\n❌ *Falhas ao Adicionar:*\n" + ", ".join(error_log) + "."
+            codigo = args[0]
             
-            return response.strip() if response else "Nenhuma ação realizada."
+            # Extrai o nome do item (pode estar entre aspas)
+            nome_parts = []
+            in_name = False
+            i = 1
+            for i, part in enumerate(args[1:], start=1):
+                if part.startswith('"') and not in_name:
+                    in_name = True
+                    nome_parts.append(part[1:])
+                elif in_name:
+                    if part.endswith('"'):
+                        nome_parts.append(part[:-1])
+                        break
+                    else:
+                        nome_parts.append(part)
+            nome = " ".join(nome_parts)
+            
+            remaining_args = args[i+1:]
+            grupo_nome = remaining_args[0]
+            qtd_inicial = int(remaining_args[1])
+            unidade = " ".join(remaining_args[2:])
 
+            # Valida se o grupo existe
+            grupos = db.get_all_groups()
+            grupo_id = next((g['id'] for g in grupos if g['nome'].lower() == grupo_nome.lower()), None)
+            if not grupo_id:
+                return f"❌ Grupo '{grupo_nome}' não encontrado."
+
+            # Adiciona o item
+            from stock_manager import add_item
+            success, message = add_item({
+                'codigo': codigo, 'nome': nome, 'grupo_id': grupo_id,
+                'estoque_atual': qtd_inicial, 'estoque_minimo': 0, 'unidade_medida': unidade
+            })
+
+            if success:
+                return f"✅ Item '{nome}' adicionado ao estoque com {qtd_inicial} {unidade}."
+            else:
+                return f"❌ {message}"
+        except (ValueError, IndexError):
+            return 'Uso inválido. Exemplo: /estoque add GR01 "Granola 500g" Insumos 10 pct'
         except Exception as e:
-            logging.error(f"Erro ao adicionar múltiplos itens de estoque via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao processar o comando."
+            logging.error(f"Erro ao adicionar item ao estoque: {e}", exc_info=True)
+            return "❌ Erro interno ao adicionar item."
 
     def _handle_estoque_baixa(self, args: list):
-        """Dá baixa em um ou mais itens do estoque. Formato: <cód1> <qtd1>, <cód2> <qtd2>"""
+        """Dá baixa em um ou mais itens do estoque."""
+        if not args:
+            return "Uso: /estoque baixa <codigo1> <qtd1>, <codigo2> <qtd2>, ..."
+        
         try:
-            full_command = " ".join(args)
-            items_to_process = [item.strip() for item in full_command.split(',') if item.strip()]
-
-            if not items_to_process:
-                return "❌ Formato inválido. Uso: /estoque baixa <cód1> <qtd1>, <cód2> <qtd2>"
-
+            items_str = " ".join(args)
+            items_to_decrease = [item.strip().split() for item in items_str.split(',')]
+            
             responses = []
-            for item_str in items_to_process:
-                parts = item_str.split()
-                if len(parts) != 2:
-                    responses.append(f"Ignorado: '{item_str}' (formato inválido)")
-                    continue
-                
-                codigo, qtd_str = parts
-                try:
-                    qtd = int(qtd_str)
-                    success, message = sm.give_stock_out(codigo.upper(), qtd)
-                    if success:
-                        item_info = sm.get_item_by_code(codigo.upper())
-                        item_name = item_info['nome'] if item_info else codigo.upper()
-                        responses.append(f"✅ Baixa de {qtd} em '{item_name}' realizada.")
-                    else:
-                        responses.append(f"❌ Falha ao dar baixa em '{codigo.upper()}': {message}")
-                except ValueError:
-                    responses.append(f"Ignorado: Quantidade para '{codigo.upper()}' não é um número.")
-                except Exception as e:
-                    responses.append(f"❌ Erro ao processar '{codigo.upper()}': {e}")
+            from stock_manager import decrease_stock
+            for item_code, quantity_str in items_to_decrease:
+                quantity = int(quantity_str)
+                success, message = decrease_stock(item_code, quantity)
+                if success:
+                    responses.append(f"✅ Baixa de {quantity} em '{item_code}' realizada.")
+                else:
+                    responses.append(f"❌ Falha na baixa de '{item_code}': {message}")
             
             return "\n".join(responses)
-
+        except (ValueError, IndexError):
+            return "Formato inválido. Exemplo: /estoque baixa GR01 1, CP300 50"
         except Exception as e:
-            logging.error(f"Erro ao dar baixa no estoque via comando: {e}", exc_info=True)
-            return "❌ Ocorreu um erro interno ao processar a baixa de estoque."
+            logging.error(f"Erro ao dar baixa no estoque: {e}", exc_info=True)
+            return "❌ Erro interno ao processar baixa de estoque."
 
     def _handle_estoque_ajustar(self, args: list):
-        """Ajusta a quantidade de um item de estoque para um novo valor."""
+        """Ajusta o estoque de um produto."""
         try:
             if len(args) != 2:
                 return "Uso: /estoque ajustar <código_item> <nova_quantidade>"
 
-            codigo = args[0].upper()
-            nova_qtd = int(args[1])
+            item_code = args[0]
+            new_stock = int(args[1])
 
-            item = sm.get_item_by_code(codigo)
-            if not item:
-                return f"❌ Item com código '{codigo}' não encontrado."
-
-            success, message = sm.adjust_stock_quantity(codigo, nova_qtd)
+            from stock_manager import adjust_stock
+            success, message = adjust_stock(item_code, new_stock)
 
             if success:
-                return f"✅ Estoque de '{item['nome']}' ajustado para *{nova_qtd} {item['unidade_medida']}*."
+                return f"✅ Estoque do item '{item_code}' ajustado para {new_stock}."
             else:
-                return f"❌ Falha ao ajustar estoque: {message}"
+                return f"❌ {message}"
 
         except ValueError:
             return "❌ Quantidade inválida. Por favor, insira um número inteiro."
         except Exception as e:
             logging.error(f"Erro ao ajustar estoque via comando: {e}", exc_info=True)
             return "❌ Ocorreu um erro interno ao ajustar o estoque."
+
+    def _handle_estoque_baixo(self):
+        """Retorna uma lista de produtos com estoque baixo."""
+        try:
+            report = db.get_stock_report()
+            low_stock_items = report.get('low_stock_items', [])
+
+            if not low_stock_items:
+                return "✅ Nenhum produto com estoque baixo encontrado."
+
+            response = "📉 *Produtos com Estoque Baixo*\n\n"
+            for item in low_stock_items:
+                stock_str = f"{item['stock']:.3f}".replace('.', ',')
+                response += f"- `{item['description']}`: `{stock_str}`\n"
+            
+            return response
+
+        except Exception as e:
+            logging.error(f"Erro ao buscar produtos com estoque baixo via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro interno ao buscar o relatório de estoque."
 
     def _handle_caixa_movimento(self, tipo: str, args: list):
         """Registra uma sangria ou suprimento no caixa."""

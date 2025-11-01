@@ -13,7 +13,10 @@ def create_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS product_groups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
+                name TEXT NOT NULL UNIQUE,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -28,6 +31,9 @@ def create_tables():
                 quantity INTEGER NOT NULL DEFAULT 0,
                 sale_type TEXT NOT NULL CHECK(sale_type IN ('unit', 'weight')),
                 group_id INTEGER,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (group_id) REFERENCES product_groups (id)
             )
         ''')
@@ -36,7 +42,10 @@ def create_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS payment_methods (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
+                name TEXT NOT NULL UNIQUE,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -48,7 +57,10 @@ def create_tables():
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK(role IN ('operador', 'gerente')),
                 active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -76,6 +88,9 @@ def create_tables():
                 difference INTEGER,
                 status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed')),
                 observations TEXT,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
@@ -119,6 +134,9 @@ def create_tables():
                 user_id INTEGER,
                 cash_session_id INTEGER,
                 training_mode BOOLEAN DEFAULT 0,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (cash_session_id) REFERENCES cash_sessions (id)
             )
@@ -144,6 +162,9 @@ def create_tables():
                 quantity REAL NOT NULL,
                 unit_price INTEGER NOT NULL,
                 total_price INTEGER NOT NULL,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (sale_id) REFERENCES sales (id),
                 FOREIGN KEY (product_id) REFERENCES products (id)
             )
@@ -174,7 +195,10 @@ def create_tables():
                 address TEXT,
                 credit_limit INTEGER DEFAULT 0, -- Limite de crédito em centavos. 0 = sem limite.
                 is_blocked BOOLEAN DEFAULT 0, -- Para bloquear clientes inadimplentes
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -195,6 +219,9 @@ def create_tables():
                     created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     due_date DATE,
                     user_id INTEGER NOT NULL,
+                    id_web TEXT UNIQUE,
+                    sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                    last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
                     FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
                     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -211,6 +238,9 @@ def create_tables():
                 user_id INTEGER NOT NULL,
                 payment_method TEXT NOT NULL, -- Dinheiro, PIX, Cartão, etc.
                 cash_session_id INTEGER, -- Sessão de caixa em que o pagamento foi recebido
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (credit_sale_id) REFERENCES credit_sales(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users(id),
                 FOREIGN KEY (cash_session_id) REFERENCES cash_sessions(id) ON DELETE SET NULL
@@ -222,7 +252,10 @@ def create_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS estoque_grupos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT UNIQUE NOT NULL
+                nome TEXT UNIQUE NOT NULL,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -236,6 +269,9 @@ def create_tables():
                 estoque_atual INTEGER NOT NULL,
                 estoque_minimo INTEGER NOT NULL DEFAULT 0,
                 unidade_medida TEXT,
+                id_web TEXT UNIQUE,
+                sync_status TEXT NOT NULL DEFAULT 'pending_create',
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (grupo_id) REFERENCES estoque_grupos (id)
             )
         ''')
@@ -294,15 +330,16 @@ def create_tables():
             )
         ''')
 
-        logging.info("Inserindo configurações padrão do WhatsApp...")
-        whatsapp_configs = [
+        logging.info("Inserindo configurações padrão...")
+        default_settings = [
             ('whatsapp_notifications_enabled', 'false'),
             ('whatsapp_notification_number', ''),
             ('whatsapp_manager_numbers', ''),
-            ('whatsapp_notifications_globally_enabled', 'true')
+            ('whatsapp_notifications_globally_enabled', 'true'),
+            ('last_sync_timestamp', '1970-01-01T00:00:00+00:00')
         ]
 
-        for key, value in whatsapp_configs:
+        for key, value in default_settings:
             cursor.execute('''
                 INSERT OR IGNORE INTO settings (key, value)
                 VALUES (?, ?)

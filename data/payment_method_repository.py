@@ -27,7 +27,7 @@ def update_payment_method(method_id, name):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('UPDATE payment_methods SET name = ? WHERE id = ?', (name, method_id))
+        cursor.execute('UPDATE payment_methods SET name = ?, sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END WHERE id = ?', (name, method_id))
         conn.commit()
         return True, "Forma de pagamento atualizada com sucesso."
     except sqlite3.IntegrityError:

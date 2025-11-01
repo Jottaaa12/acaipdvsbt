@@ -139,9 +139,10 @@ def close_cash_session(session_id, user_id, final_amount, cash_counts, observati
 
         # Atualiza sessão com valores em centavos
         cursor.execute('''
-            UPDATE cash_sessions 
-            SET close_time = CURRENT_TIMESTAMP, final_amount = ?, expected_amount = ?, 
-                difference = ?, status = 'closed', observations = ?
+            UPDATE cash_sessions
+            SET close_time = CURRENT_TIMESTAMP, final_amount = ?, expected_amount = ?,
+                difference = ?, status = 'closed', observations = ?,
+                sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END
             WHERE id = ?
         ''', (final_amount_cents, expected_amount_cents, difference_cents, observations, session_id))
 

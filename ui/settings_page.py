@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QToolButton, QPushButton, QGridLayout, QScrollArea,
-    QDialog, QMessageBox
+    QDialog, QMessageBox, QGroupBox
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThreadPool
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
 
 from ui.theme import ModernTheme, IconTheme
@@ -16,6 +16,7 @@ from ui.shortcut_management_widget import ShortcutManagementWidget
 from ui.settings.establishment_widget import EstablishmentWidget
 from ui.settings.hardware_widget import HardwareWidget
 from ui.settings.whatsapp_widget import WhatsAppWidget
+from data.sync_manager import SyncManager
 
 
 class SettingsButton(QToolButton):
@@ -61,12 +62,14 @@ class SettingsPage(QWidget):
     operation_mode_changed = pyqtSignal()
     open_log_console_requested = pyqtSignal()
 
-    def __init__(self, scale_handler, printer_handler, current_user, sales_page=None):
+    def __init__(self, scale_handler, printer_handler, sync_manager: SyncManager, current_user, sales_page=None):
         super().__init__()
         self.scale_handler = scale_handler
         self.printer_handler = printer_handler
+        self.sync_manager = sync_manager
         self.current_user = current_user
         self.sales_page = sales_page
+        self.thread_pool = QThreadPool()
         self.setup_ui()
 
     def setup_ui(self):
@@ -80,15 +83,34 @@ class SettingsPage(QWidget):
         title.setObjectName("title")
         main_layout.addWidget(title)
 
+        # Grupo de Sincronização
+        sync_group = QGroupBox("Sincronização com a Nuvem")
+        sync_layout = QVBoxLayout()
+
+        self.sync_button = QPushButton(f"{IconTheme.SYNC} Sincronizar Agora")
+        self.sync_button.clicked.connect(self.run_sync)
+
+        self.sync_status_label = QLabel("Pronto.")
+        self.sync_status_label.setObjectName("syncStatusLabel")
+
+        sync_layout.addWidget(self.sync_button)
+        sync_layout.addWidget(self.sync_status_label)
+        sync_group.setLayout(sync_layout)
+        main_layout.addWidget(sync_group)
+
+        # Conectar os sinais do sync_manager
+        self.sync_manager.sync_status_updated.connect(self.on_sync_status_update)
+        self.sync_manager.sync_finished.connect(self.on_sync_finished)
+
         # Scroll Area
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setObjectName("scroll_area")
-        
+
         container = QWidget()
         self.grid_layout = QGridLayout(container)
         self.grid_layout.setSpacing(20)
-        
+
         scroll_area.setWidget(container)
         main_layout.addWidget(scroll_area)
 
@@ -221,3 +243,50 @@ class SettingsPage(QWidget):
     def open_whatsapp_settings(self):
         widget = WhatsAppWidget(self.current_user)
         self._create_modal_dialog("Configurações do WhatsApp", widget)
+
+    def run_sync(self):
+        """Executa a sincronização em uma thread separada."""
+        from ui.worker import Worker
+
+        # Desabilitar o botão durante a sincronização
+        self.sync_button.setEnabled(False)
+        self.sync_button.setText(f"{IconTheme.SYNC} Sincronizando...")
+
+        # Criar worker para executar a sincronização
+        worker = Worker(self.sync_manager.check_connection_and_run_sync)
+        worker.signals.finished.connect(self._on_sync_worker_finished)
+        worker.signals.error.connect(self._on_sync_worker_error)
+
+        # Executar na thread pool
+        self.thread_pool.start(worker)
+
+    def on_sync_status_update(self, message):
+        """Slot para atualizar o status da sincronização."""
+        self.sync_status_label.setText(message)
+
+    def on_sync_finished(self, success, message):
+        """Slot chamado quando a sincronização termina."""
+        # Reabilitar o botão
+        self.sync_button.setEnabled(True)
+        self.sync_button.setText(f"{IconTheme.SYNC} Sincronizar Agora")
+
+        # Atualizar o status final
+        self.sync_status_label.setText(message)
+
+        # Mostrar mensagem de resultado
+        if success:
+            QMessageBox.information(self, "Sucesso", message)
+        else:
+            QMessageBox.warning(self, "Erro na Sincronização", message)
+
+    def _on_sync_worker_finished(self):
+        """Chamado quando o worker da sincronização termina."""
+        # O resultado é tratado pelos sinais do sync_manager
+        pass
+
+    def _on_sync_worker_error(self, error):
+        """Chamado quando ocorre erro no worker da sincronização."""
+        self.sync_button.setEnabled(True)
+        self.sync_button.setText(f"{IconTheme.SYNC} Sincronizar Agora")
+        self.sync_status_label.setText("Erro na sincronização.")
+        QMessageBox.critical(self, "Erro", f"Erro durante a sincronização: {error}")

@@ -10,12 +10,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from config_manager import ConfigManager
 from ui.theme import ModernTheme
-from data.settings_repository import (
-    are_notifications_globally_enabled, 
-    set_global_notification_status,
-    load_setting,
-    save_setting
-)
+from data.settings_repository import SettingsRepository
 
 class QRCodeDialog(QDialog):
     """Um diálogo modal simples para exibir o QR Code do WhatsApp de forma clara."""
@@ -70,6 +65,7 @@ class WhatsAppWidget(QWidget):
         super().__init__(parent)
         self.current_user = current_user
         self.config_manager = ConfigManager()
+        self.settings_repo = SettingsRepository()
         self.qr_code_dialog = None
 
         self.setup_ui()
@@ -353,7 +349,7 @@ class WhatsAppWidget(QWidget):
     def load_whatsapp_config_to_ui(self):
         # Load authorized managers
         self.managers_list_widget.clear()
-        numbers_str = load_setting('whatsapp_manager_numbers', '')
+        numbers_str = self.settings_repo.get_setting('whatsapp_manager_numbers', '')
         if numbers_str:
             numbers = [num.strip() for num in numbers_str.split(',') if num.strip()]
             self.managers_list_widget.addItems(numbers)
@@ -388,7 +384,7 @@ class WhatsAppWidget(QWidget):
         try:
             numbers = [self.managers_list_widget.item(i).text() for i in range(self.managers_list_widget.count())]
             numbers_str = ",".join(numbers)
-            save_setting('whatsapp_manager_numbers', numbers_str)
+            self.settings_repo.save_setting('whatsapp_manager_numbers', numbers_str)
 
             # Update manager in real-time
             from integrations.whatsapp_manager import WhatsAppManager
@@ -542,7 +538,7 @@ class WhatsAppWidget(QWidget):
     def load_notifications_config_to_ui(self):
         try:
             # Carregar configuração global
-            is_globally_enabled = are_notifications_globally_enabled()
+            is_globally_enabled = self.settings_repo.are_notifications_globally_enabled()
             self.global_notifications_checkbox.setChecked(is_globally_enabled)
             self.features_group.setEnabled(is_globally_enabled)
 
@@ -568,7 +564,7 @@ class WhatsAppWidget(QWidget):
         try:
             # Salvar configuração global
             is_globally_enabled = self.global_notifications_checkbox.isChecked()
-            set_global_notification_status(is_globally_enabled)
+            self.settings_repo.set_global_notification_status(is_globally_enabled)
 
             from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
             notifier = get_whatsapp_sales_notifier()

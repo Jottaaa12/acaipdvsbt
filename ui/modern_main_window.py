@@ -25,6 +25,8 @@ from ui.backup_dialog import BackupDialog
 from ui.log_console_dialog import LogConsoleDialog
 from hardware.scale_handler import ScaleHandler
 from hardware.printer_handler import PrinterHandler
+from data.sync_manager import SyncManager
+from ui.worker import Worker # (Verificar se já existe, se não, adicionar)
 import database as db
 import logging
 
@@ -567,7 +569,8 @@ class ModernMainWindow(QMainWindow):
         self.printer_handler = PrinterHandler(
             self.config.get('printer', {})
         )
-        
+        self.sync_manager = SyncManager() # <--- ADICIONAR AQUI
+
         # Inicia o handler da balança globalmente
         self.scale_handler.start()
 
@@ -737,6 +740,7 @@ class ModernMainWindow(QMainWindow):
         self.pages["settings"] = SettingsPage(
             scale_handler=self.scale_handler,
             printer_handler=self.printer_handler,
+            sync_manager=self.sync_manager, # <--- ADICIONAR AQUI
             current_user=self.current_user,
             sales_page=self.pages["sales"]  # Injetando a dependência
         )
@@ -893,4 +897,3 @@ class ModernMainWindow(QMainWindow):
             else:
                 self.showFullScreen()
         super().keyPressEvent(event)
-

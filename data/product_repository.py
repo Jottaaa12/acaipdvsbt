@@ -120,7 +120,8 @@ def update_product(product_id, description, barcode, price, stock, sale_type, gr
 
         cursor.execute('''
             UPDATE products
-            SET description = ?, barcode = ?, price = ?, stock = ?, quantity = ?, sale_type = ?, group_id = ?
+            SET description = ?, barcode = ?, price = ?, stock = ?, quantity = ?, sale_type = ?, group_id = ?,
+                sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END
             WHERE id = ?
         ''', (description, barcode, price_in_cents, stock_integer, stock_integer, sale_type, group_id, product_id))
         conn.commit()
@@ -164,7 +165,7 @@ def update_stock_by_barcode(barcode: str, new_stock: float, user_id: int):
             return False, "Produto não encontrado."
 
         cursor.execute(
-            'UPDATE products SET stock = ?, quantity = ? WHERE barcode = ?',
+            'UPDATE products SET stock = ?, quantity = ?, sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END WHERE barcode = ?',
             (stock_integer, stock_integer, barcode)
         )
         conn.commit()
@@ -196,7 +197,7 @@ def update_product_price(barcode, new_price):
     try:
         price_decimal = Decimal(str(new_price)).quantize(Decimal('0.01'))
         price_in_cents = to_cents(price_decimal)
-        cursor.execute('UPDATE products SET price = ? WHERE barcode = ?', (price_in_cents, barcode))
+        cursor.execute('UPDATE products SET price = ?, sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END WHERE barcode = ?', (price_in_cents, barcode))
         conn.commit()
         if cursor.rowcount > 0:
             return True, "Preço atualizado com sucesso."

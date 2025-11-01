@@ -27,7 +27,7 @@ def update_group(group_id, name):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('UPDATE product_groups SET name = ? WHERE id = ?', (name, group_id))
+        cursor.execute('UPDATE product_groups SET name = ?, sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END WHERE id = ?', (name, group_id))
         conn.commit()
         return True, "Grupo atualizado com sucesso."
     except sqlite3.IntegrityError:
