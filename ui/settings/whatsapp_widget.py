@@ -66,6 +66,7 @@ class WhatsAppWidget(QWidget):
         self.current_user = current_user
         self.config_manager = ConfigManager()
         self.settings_repo = SettingsRepository()
+        
         self.qr_code_dialog = None
 
         self.setup_ui()

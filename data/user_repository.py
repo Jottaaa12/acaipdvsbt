@@ -120,3 +120,4 @@ def get_user_by_username(username: str):
     user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
     conn.close()
     return dict(user) if user else None
+

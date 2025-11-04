@@ -51,3 +51,25 @@ class SettingsRepository:
         """Verifica se as notificações globais do WhatsApp estão ativadas."""
         status = self.get_setting('whatsapp_notifications_globally_enabled', '1') # Padrão é ativado
         return status == '1'
+
+# --- Funções de fachada para manter a compatibilidade ---
+
+_repo = SettingsRepository()
+
+def get_setting(key: str, default: str | None = None) -> str | None:
+    return _repo.get_setting(key, default)
+
+def save_setting(key: str, value: str):
+    return _repo.save_setting(key, value)
+
+def get_authorized_managers():
+    return _repo.get_authorized_managers()
+
+def set_global_notification_status(enabled: bool):
+    return _repo.set_global_notification_status(enabled)
+
+def are_notifications_globally_enabled() -> bool:
+    return _repo.are_notifications_globally_enabled()
+
+# Alias para compatibilidade com código legado
+load_setting = get_setting
