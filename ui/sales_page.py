@@ -10,7 +10,7 @@ import json
 import os
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import database as db
-from data.credit_repository import associate_sale_to_credit # <-- ADICIONADO
+from data.credit_repository import associate_sale_to_credit, create_credit_sale
 from hardware.scale_handler import ScaleHandler
 from hardware.printer_handler import PrinterHandler
 from ui.payment_dialog import PaymentDialog
@@ -19,6 +19,7 @@ from ui.product_search_dialog import ProductSearchDialog
 from ui.theme import ModernTheme
 from utils import get_data_path
 import logging
+from data.audit_repository import log_audit
 
 class SalesPage(QWidget):
     def __init__(self, main_window, scale_handler, printer_handler):
@@ -480,35 +481,78 @@ class SalesPage(QWidget):
         if not self.is_cash_session_open(): return
         """Handles the request to process the sale as a credit sale (fiado)."""
         credit_dialog = CreditDialog(total_amount, self.main_window.current_user['id'], self)
+        
         if credit_dialog.exec() == QDialog.DialogCode.Accepted:
-            # The credit sale was created successfully in the CreditDialog.
-            # Now, we register the original sale for auditing and stock purposes.
-            
+            credit_data = credit_dialog.get_credit_data()
+            if not credit_data:
+                QMessageBox.critical(self, "Erro", "Não foi possível obter os dados da venda a crédito.")
+                return
+
             selected_customer = credit_dialog.get_selected_customer()
             customer_name = selected_customer['name'] if selected_customer else "Cliente Fiado"
+            
+            try:
+                # 1. Create the credit sale record first
+                success, credit_sale_id = create_credit_sale(
+                    customer_id=credit_data['customer_id'],
+                    amount=total_amount,
+                    user_id=self.main_window.current_user['id'],
+                    observations=credit_data['observations'],
+                    due_date=credit_data['due_date']
+                )
 
-            # We pass an empty list of payments and zero change.
-            sale_success, sale_data = db.register_sale_with_user(
-                total_amount, [], self.current_sale_items, Decimal('0.00'),
-                user_id=self.main_window.current_user["id"],
-                cash_session_id=self.main_window.current_cash_session["id"],
-                customer_name=customer_name
-            )
+                if not success:
+                    # The exception in create_credit_sale should have been raised, but as a fallback:
+                    raise Exception(credit_sale_id or "Erro desconhecido ao criar venda a crédito.")
 
-            if sale_success:
-                # Link the original sale to the credit sale
-                credit_sale_id = credit_dialog.credit_sale_id
-                sale_id = sale_data['id']
-                associate_sale_to_credit(credit_sale_id, sale_id)
+                # Log audit for credit sale creation
+                log_audit(
+                    self.main_window.current_user['id'],
+                    'CREATE_CREDIT_SALE',
+                    'credit_sales',
+                    credit_sale_id,
+                    f"Cliente: {customer_name}, Valor: {total_amount:.2f}"
+                )
 
-                QMessageBox.information(self, "Venda Fiado Registrada", 
-                                        "A venda foi registrada no fiado do cliente com sucesso.")
-                self.current_sale_items.clear()
-                self.current_sale_customer_name = None
-                self.update_sale_display()
-            else:
+                # 2. Register the main sale for stock control, passing an empty list of payments.
+                sale_success, sale_data = db.register_sale_with_user(
+                    total_amount, [], self.current_sale_items, Decimal('0.00'),
+                    user_id=self.main_window.current_user["id"],
+                    cash_session_id=self.main_window.current_cash_session["id"],
+                    customer_name=customer_name
+                )
+
+                if sale_success:
+                    # 3. Link the original sale to the credit sale
+                    sale_id = sale_data['id']
+                    associate_sale_to_credit(credit_sale_id, sale_id)
+
+                    QMessageBox.information(self, "Venda Fiado Registrada", 
+                                            "A venda foi registrada no fiado do cliente com sucesso.")
+                    self.current_sale_items.clear()
+                    self.current_sale_customer_name = None
+                    self.update_sale_display()
+                else:
+                    # This is a critical failure state. The credit sale was created, but stock was not lowered.
+                    # This requires manual intervention. We should inform the user clearly.
+                    log_audit(
+                        self.main_window.current_user['id'],
+                        'CREDIT_SALE_ERROR',
+                        'sales',
+                        None,
+                        f"Falha ao registrar venda (ID crédito: {credit_sale_id}). Baixa de estoque falhou. Erro: {sale_data.get('error', 'Desconhecido')}"
+                    )
+                    QMessageBox.critical(self, "Erro Crítico de Sincronia", 
+                                         f"A dívida foi registrada para o cliente, mas houve um erro ao registrar a venda para baixa de estoque.\n\n"
+                                         f"ID da Venda a Crédito: {credit_sale_id}\n"
+                                         f"ERRO: {sale_data.get('error', 'Desconhecido')}\n\n"
+                                         "AÇÃO NECESSÁRIA: Verifique o estoque dos itens desta venda manualmente.")
+            
+            except Exception as e:
+                logging.error(f"Falha crítica no processo de venda a crédito: {e}")
                 QMessageBox.critical(self, "Erro Crítico", 
-                                     f"A venda a crédito foi criada, mas houve um erro ao registrar a venda original para baixa de estoque. Verifique o estoque manualmente.\nErro: {sale_data.get('error', 'Desconhecido')}")
+                                     f"Ocorreu um erro inesperado ao processar a venda a crédito.\n\nErro: {e}\n\n"
+                                     "Verifique o cadastro do cliente e o histórico de vendas para garantir a consistência dos dados.")
 
     # --- Funções de Configuração (Restauradas) ---
     def load_store_config(self):

@@ -8,6 +8,7 @@ import logging
 import yoyo
 
 from data.connection import DB_FILE
+from data.migration_fixes import check_and_fix_sync_columns
 
 # Configuracao basica de logging para capturar tudo desde o inicio
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - [%(levelname)s] - %(message)s')
@@ -173,6 +174,13 @@ class PDVApplication:
 
             else:
                 logging.info("Banco de dados já está atualizado.")
+
+            # Verifica e corrige problemas de migração parcial (0004.add-sync-columns.sql)
+            try:
+                check_and_fix_sync_columns()
+            except Exception as e:
+                logging.error(f"Erro durante verificação de correção das colunas de sincronização: {e}")
+                # Não interrompe a inicialização por causa deste erro
 
             logging.info("Banco de dados inicializado com sucesso.")
 
