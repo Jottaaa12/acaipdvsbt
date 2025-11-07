@@ -4,7 +4,7 @@
   "description": "Node.js bridge for WhatsApp integration.",
   "private": true,
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.19",
+    "@whiskeysockets/baileys": "^6.7.21",
     "pino": "^8.21.0"
   }
 }

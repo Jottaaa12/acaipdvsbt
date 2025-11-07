@@ -18,7 +18,7 @@ def add_payment_method(name):
 
 def get_all_payment_methods():
     conn = get_db_connection()
-    methods = conn.execute('SELECT * FROM payment_methods ORDER BY name').fetchall()
+    methods = conn.execute('SELECT * FROM payment_methods WHERE is_deleted = 0 ORDER BY name').fetchall()
     conn.close()
     return methods
 
@@ -38,20 +38,11 @@ def update_payment_method(method_id, name):
         conn.close()
 
 def delete_payment_method(method_id):
-    """Deleta uma forma de pagamento."""
+    """Marca uma forma de pagamento como deletada (soft delete)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Verifica se a forma de pagamento está sendo usada em alguma venda na nova tabela sale_payments.
-        usage_count = cursor.execute(
-            'SELECT COUNT(*) FROM sale_payments WHERE payment_method = (SELECT name FROM payment_methods WHERE id = ?)',
-            (method_id,)
-        ).fetchone()[0]
-
-        if usage_count > 0:
-            return False, f"Esta forma de pagamento não pode ser deletada pois está associada a {usage_count} pagamento(s)."
-
-        cursor.execute('DELETE FROM payment_methods WHERE id = ?', (method_id,))
+        cursor.execute("""UPDATE payment_methods SET is_deleted = 1, sync_status = 'pending_update' WHERE id = ?""", (method_id,))
         conn.commit()
         
         if cursor.rowcount > 0:

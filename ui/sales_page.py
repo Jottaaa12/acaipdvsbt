@@ -234,6 +234,9 @@ class SalesPage(QWidget):
         QShortcut(QKeySequence(Qt.Key.Key_Return), self).activated.connect(self.handle_enter_pressed)
         QShortcut(QKeySequence(Qt.Key.Key_Enter), self).activated.connect(self.handle_enter_pressed)
 
+        # Atalho para deletar item da venda
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self).activated.connect(self.remove_selected_item)
+
     # --- Funções de Busca de Produto ---
     def open_product_search_dialog(self):
         dialog = ProductSearchDialog(self)
@@ -428,11 +431,19 @@ class SalesPage(QWidget):
             payments = result['payments']
             change_amount = result['change']
 
+            # FIX: Re-validar a sessão de caixa antes de registrar a venda
+            current_session_id = self.main_window.current_cash_session["id"]
+            if not db.get_cash_session_by_id(current_session_id):
+                QMessageBox.critical(self, "Erro de Sessão", 
+                                     "A sessão de caixa atual não é mais válida. Por favor, feche e abra o caixa novamente.")
+                self.main_window.current_cash_session = None # Limpa a sessão inválida
+                return
+
             # Envia a venda para o banco de dados, agora incluindo o nome do cliente
             sale_success, sale_data = db.register_sale_with_user(
                 total_amount, payments, self.current_sale_items, change_amount,
                 user_id=self.main_window.current_user["id"],
-                cash_session_id=self.main_window.current_cash_session["id"],
+                cash_session_id=current_session_id,
                 customer_name=self.current_sale_customer_name
             )
 

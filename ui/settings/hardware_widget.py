@@ -225,7 +225,26 @@ class HardwareWidget(QWidget):
             return
 
         # Impressora
-        self.save_printer_config()
+        type_mapping = {
+            'Desabilitada': 'disabled',
+            'Térmica (USB)': 'thermal_usb',
+            'Térmica (Bluetooth)': 'thermal_bluetooth',
+            'Térmica (Serial)': 'thermal_serial',
+            'Térmica (Rede)': 'thermal_network',
+            'Impressora do Sistema (A4)': 'system_printer'
+        }
+        printer_type = type_mapping.get(self.printer_type_combo.currentText(), 'disabled')
+        printer_config = {
+            'type': printer_type,
+            'usb_vendor_id': self.printer_vendor_id_input.text().strip(),
+            'usb_product_id': self.printer_product_id_input.text().strip(),
+            'bluetooth_port': self.bluetooth_port_input.text().strip(),
+            'serial_port': self.serial_port_input.text().strip(),
+            'serial_baudrate': int(self.serial_baudrate_input.text()) if self.serial_baudrate_input.text() else 9600,
+            'network_ip': self.network_ip_input.text().strip(),
+            'network_port': int(self.network_port_input.text()) if self.network_port_input.text() else 9100,
+        }
+        config['printer'] = printer_config
 
         self.config_manager.save_config(config)
         QMessageBox.information(self, "Sucesso", "Configurações de hardware salvas com sucesso!")
@@ -316,7 +335,7 @@ class HardwareWidget(QWidget):
             sender.setText("🔄 Testando...")
 
         try:
-            self.save_printer_config()
+            self.save_all_hardware_config()
             config = self.config_manager.load_config()
             printer_config = config.get('printer', {})
             from hardware.printer_handler import PrinterHandler
@@ -353,26 +372,3 @@ class HardwareWidget(QWidget):
         self.network_ip_input.setText(printer_config.get('network_ip', ''))
         self.network_port_input.setText(str(printer_config.get('network_port', 9100)))
 
-    def save_printer_config(self):
-        config = self.config_manager.load_config()
-        type_mapping = {
-            'Desabilitada': 'disabled',
-            'Térmica (USB)': 'thermal_usb',
-            'Térmica (Bluetooth)': 'thermal_bluetooth',
-            'Térmica (Serial)': 'thermal_serial',
-            'Térmica (Rede)': 'thermal_network',
-            'Impressora do Sistema (A4)': 'system_printer'
-        }
-        printer_type = type_mapping.get(self.printer_type_combo.currentText(), 'disabled')
-        printer_config = {
-            'type': printer_type,
-            'usb_vendor_id': self.printer_vendor_id_input.text().strip(),
-            'usb_product_id': self.printer_product_id_input.text().strip(),
-            'bluetooth_port': self.bluetooth_port_input.text().strip(),
-            'serial_port': self.serial_port_input.text().strip(),
-            'serial_baudrate': int(self.serial_baudrate_input.text()) if self.serial_baudrate_input.text() else 9600,
-            'network_ip': self.network_ip_input.text().strip(),
-            'network_port': int(self.network_port_input.text()) if self.network_port_input.text() else 9100,
-        }
-        config['printer'] = printer_config
-        self.config_manager.save_config(config)

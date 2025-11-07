@@ -95,9 +95,10 @@ def get_sales_with_payment_methods_by_period(start_date, end_date):
             s.id, s.sale_date, s.total_amount, s.user_id, s.cash_session_id, s.training_mode,
             s.session_sale_id, s.customer_name,
             u.username,
-            GROUP_CONCAT(sp.payment_method, ', ') as payment_methods_str
+            GROUP_CONCAT(pm.name, ', ') as payment_methods_str
         FROM sales s
         LEFT JOIN sale_payments sp ON s.id = sp.sale_id
+        LEFT JOIN payment_methods pm ON sp.payment_method = pm.id
         LEFT JOIN users u ON s.user_id = u.id
         WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
         GROUP BY s.id
@@ -158,15 +159,36 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
         total_amount_cents = int(to_cents(total_amount))
         change_amount_cents = int(to_cents(change_amount))
         
+        # Validação dos IDs
+        if user_id is not None:
+            logging.debug(f"Validating user_id: {user_id}")
+            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            if cursor.fetchone() is None:
+                logging.warning(f"User ID {user_id} not found. Setting to NULL.")
+                user_id = None
+            logging.debug("user_id is valid")
+        
+        if cash_session_id is not None:
+            logging.debug(f"Validating cash_session_id: {cash_session_id}")
+            cursor.execute("SELECT id FROM cash_sessions WHERE id = ?", (cash_session_id,))
+            if cursor.fetchone() is None:
+                logging.warning(f"Cash session ID {cash_session_id} not found. Setting to NULL.")
+                cash_session_id = None
+            logging.debug("cash_session_id is valid")
+
         # Nova lógica para o ID da sessão
         session_sale_id = get_next_session_sale_id(cash_session_id)
+        logging.debug(f"Next session_sale_id: {session_sale_id}")
 
+        logging.debug(f"Executing INSERT INTO sales with user_id: {user_id}, cash_session_id: {cash_session_id}")
         cursor.execute('''
             INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode, change_amount, session_sale_id, customer_name)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (total_amount_cents, user_id, cash_session_id, training_mode, change_amount_cents, session_sale_id, customer_name))
+        logging.debug("Finished INSERT INTO sales")
 
         sale_id = cursor.lastrowid
+        logging.debug(f"Sale registered with sale_id: {sale_id}")
 
         for item in items:
             # Garante que os valores de preço também sejam inteiros
@@ -175,19 +197,34 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
             quantity_float = float(item['quantity']) # Correção anterior mantida
             peso_kg = float(item.get('peso_kg', 0.0)) # Pega o peso ou default para 0.0
 
+            # Valida o ID do produto
+            logging.debug(f"Validating product with id {item['id']}")
+            cursor.execute("SELECT id FROM products WHERE id = ?", (item['id'],))
+            if cursor.fetchone() is None:
+                raise sqlite3.Error(f"Produto com ID {item['id']} não encontrado.")
+            logging.debug(f"Product with id {item['id']} is valid")
+
+            logging.debug(f"Inserting sale_item with sale_id: {sale_id}, product_id: {item['id']}")
+            insert_values = (sale_id, item['id'], quantity_float, unit_price_cents, total_price_cents, peso_kg)
+            logging.debug(f"Values for sale_items: {insert_values}")
             cursor.execute('''
                 INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, peso_kg)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (sale_id, item['id'], quantity_float, unit_price_cents, total_price_cents, peso_kg))
+            ''', insert_values)
+            logging.debug("Finished INSERT INTO sale_items")
 
             # Só atualiza estoque se não for modo treinamento e o item for vendido por unidade.
             if not training_mode and item.get('sale_type') == 'unit':
                 # Verifica se há estoque suficiente
+                logging.debug(f"Checking stock for product_id {item['id']}")
                 stock_check = cursor.execute('SELECT stock FROM products WHERE id = ?', (item['id'],)).fetchone()
                 if stock_check and stock_check[0] < item['quantity']:
                     raise sqlite3.Error(f"Estoque insuficiente para o produto: {item['description']}")
+                logging.debug("Stock is sufficient")
 
+                logging.debug(f"Executing UPDATE products for product_id {item['id']}")
                 cursor.execute("UPDATE products SET stock = stock - ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END WHERE id = ?", (float(item['quantity']), item['id']))
+                logging.debug("Finished UPDATE products")
 
         # Se já for uma lista (novo formato), usa diretamente
         payments_list = payments
@@ -200,7 +237,9 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
                 VALUES (?, ?, ?)
             ''', (sale_id, payment['method'], payment_amount_cents))
 
+        logging.debug("Committing transaction")
         conn.commit()
+        logging.debug("Transaction committed")
 
         if user_id:
             log_audit(user_id, 'SALE', 'sales', sale_id)

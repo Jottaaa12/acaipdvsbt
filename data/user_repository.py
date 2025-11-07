@@ -15,7 +15,7 @@ def authenticate_user(username, password):
     conn = get_db_connection()
     user = conn.execute('''
         SELECT * FROM users 
-        WHERE username = ? AND active = 1
+        WHERE username = ? AND active = 1 AND is_deleted = 0
     ''', (username,)).fetchone()
     conn.close()
     
@@ -43,9 +43,9 @@ def create_user(username, password, role):
         conn.close()
 
 def get_all_users():
-    """Retorna todos os usuários."""
+    """Retorna todos os usuários não deletados."""
     conn = get_db_connection()
-    users = conn.execute('SELECT id, username, role, active, created_at FROM users ORDER BY username').fetchall()
+    users = conn.execute('SELECT id, username, role, active, created_at FROM users WHERE is_deleted = 0 ORDER BY username').fetchall()
     conn.close()
     return users
 
@@ -69,6 +69,8 @@ def update_user(user_id, username=None, password=None, role=None, active=None):
     if active is not None:
         updates.append('active = ?')
         params.append(active)
+        if not active:
+            updates.append('is_deleted = 1')
     
     if not updates:
         return True, "Nenhuma alteração a ser feita."
@@ -110,14 +112,14 @@ def log_user_session(user_id, action='login'):
 def get_user_by_id(user_id):
     """Retorna dados do usuário pelo ID."""
     conn = get_db_connection()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    user = conn.execute('SELECT * FROM users WHERE id = ? AND is_deleted = 0', (user_id,)).fetchone()
     conn.close()
     return dict(user) if user else None
 
 def get_user_by_username(username: str):
     """Retorna dados do usuário pelo nome de usuário."""
     conn = get_db_connection()
-    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    user = conn.execute('SELECT * FROM users WHERE username = ? AND is_deleted = 0', (username,)).fetchone()
     conn.close()
     return dict(user) if user else None
 

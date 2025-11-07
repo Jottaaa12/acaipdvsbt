@@ -1,0 +1,1 @@
+ALTER TABLE product_groups ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT 0;

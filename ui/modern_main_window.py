@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QFrame, QStackedWidget, QGraphicsDropShadowEffect,
-    QStatusBar, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea
+    QStatusBar, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
+    QMessageBox
 )
 from PyQt6.QtGui import QFont, QColor, QBrush, QPainter
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QRect
@@ -598,6 +599,19 @@ class ModernMainWindow(QMainWindow):
         self.credit_check_timer.timeout.connect(self.check_credit_status)
         self.credit_check_timer.start(3600000) # Checa a cada hora
         self.check_credit_status() # Checagem inicial
+
+    def show_update_notification(self, version, description):
+        """Exibe uma notificação de que uma nova atualização está disponível."""
+        logging.info(f"Notificando usuário sobre a atualização para a versão {version}")
+        
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setWindowTitle("Atualização Disponível")
+        msg_box.setText(f"Uma nova versão do sistema está disponível: <b>{version}</b>")
+        msg_box.setInformativeText(f"{description}\n\nDeseja abrir a página de atualizações para saber mais?")
+        
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
     
     def check_credit_status(self):
         """Verifica o status dos fiados e atualiza a UI se necessário."""

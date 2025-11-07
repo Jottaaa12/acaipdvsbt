@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import logging
 import database as db
 from utils import format_currency, parse_currency
 
@@ -100,6 +101,10 @@ class CashClosingDialog(QDialog):
             return
 
         session_data = report['session']
+        if not session_data:
+            logging.error(f"Não foram encontrados dados para a sessão de caixa ID: {self.session_id}")
+            QMessageBox.critical(self, "Erro", "Não foram encontrados dados para a sessão de caixa.")
+            return
         sales_summary = report['sales']
         movements = report['movements']
 

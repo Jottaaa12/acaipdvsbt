@@ -35,10 +35,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "dist\PDV.Moderno.exe"; DestDir: "{app}"; Flags: ignoreversion
-; Arquivos de dados que o aplicativo irá criar na primeira execução.
-; O instalador não precisa mais copiá-los, o que garante que dados existentes do usuário nunca sejam sobrescritos.
-; Source: "pdv.db"; DestDir: "{userappdata}\PDV Moderno"; Flags: uninsneveruninstall
-; Source: "config.json"; DestDir: "{userappdata}\PDV Moderno"; Flags: uninsneveruninstall
+Source: "wa_bridge.js"; DestDir: "{app}"; Flags: ignoreversion
+Source: "migrations\*"; DestDir: "{app}\migrations"; Flags: recursesubdirs createallsubdirs
 ; NOTA: Não use "Flags: ignoreversion" em arquivos de sistema compartilhados.
 
 [Icons]

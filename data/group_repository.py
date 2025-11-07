@@ -18,7 +18,7 @@ def add_group(name):
 
 def get_all_groups():
     conn = get_db_connection()
-    groups = conn.execute('SELECT * FROM product_groups ORDER BY name').fetchall()
+    groups = conn.execute('SELECT * FROM product_groups WHERE is_deleted = 0 ORDER BY name').fetchall()
     conn.close()
     return groups
 
@@ -38,14 +38,16 @@ def update_group(group_id, name):
         conn.close()
 
 def delete_group(group_id):
-    """Deleta um grupo, desassociando produtos primeiro."""
+    """Marca um grupo como deletado e desassocia produtos."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         # Transação para garantir atomicidade
         cursor.execute('BEGIN')
-        cursor.execute('UPDATE products SET group_id = NULL WHERE group_id = ?', (group_id,))
-        cursor.execute('DELETE FROM product_groups WHERE id = ?', (group_id,))
+        # Desassocia produtos do grupo que será deletado
+        cursor.execute('UPDATE products SET group_id = NULL, sync_status = CASE WHEN sync_status = \'pending_create\' THEN \'pending_create\' ELSE \'pending_update\' END WHERE group_id = ?', (group_id,))
+        # Marca o grupo como deletado
+        cursor.execute("""UPDATE product_groups SET is_deleted = 1, sync_status = 'pending_update' WHERE id = ?""", (group_id,))
         conn.commit()
         return True, "Grupo deletado com sucesso."
     except sqlite3.Error as e:

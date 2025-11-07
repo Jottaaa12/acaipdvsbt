@@ -5,29 +5,104 @@ from .connection import get_db_connection
 from .audit_repository import log_audit
 from utils import to_cents, to_reais
 
-def add_customer(name, cpf=None, phone=None, address=None, credit_limit=0, is_blocked=0):
+def add_customer(name, cpf=None, phone=None, address=None, credit_limit=0, is_blocked=0, cursor=None):
     """Adiciona um novo cliente."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    manage_connection = cursor is None
+    conn = None
+    if manage_connection:
+        conn = get_db_connection()
+        cursor = conn.cursor()
     try:
         credit_limit_cents = to_cents(Decimal(str(credit_limit)))
         cursor.execute('''
             INSERT INTO customers (name, cpf, phone, address, credit_limit, is_blocked)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (name, cpf, phone, address, credit_limit_cents, is_blocked))
-        conn.commit()
-        return True, cursor.lastrowid
+        customer_id = cursor.lastrowid
+        if manage_connection:
+            conn.commit()
+        return True, customer_id
     except sqlite3.IntegrityError as e:
+        if manage_connection:
+            conn.rollback()
         return False, f"Erro: Cliente com este CPF ou combinação de nome/telefone já existe. {e}"
     except sqlite3.Error as e:
+        if manage_connection:
+            conn.rollback()
         return False, f"Erro de banco de dados: {e}"
     finally:
-        conn.close()
+        if manage_connection and conn:
+            conn.close()
 
+def create_credit_sale(customer_id, amount, user_id, sale_id=None, observations=None, due_date=None, cursor=None):
+    """Cria um novo registro de venda a crédito (fiado)."""
+    manage_connection = cursor is None
+    conn = None
+    if manage_connection:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+    try:
+        # Validate foreign keys
+        cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+        if cursor.fetchone() is None:
+            raise sqlite3.IntegrityError(f"User with ID {user_id} not found.")
+
+        cursor.execute("SELECT id FROM customers WHERE id = ?", (customer_id,))
+        if cursor.fetchone() is None:
+            raise sqlite3.IntegrityError(f"Customer with ID {customer_id} not found.")
+            
+        amount_cents = to_cents(Decimal(str(amount)))
+        cursor.execute('''
+            INSERT INTO credit_sales (customer_id, sale_id, amount, observations, due_date, user_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (customer_id, sale_id, amount_cents, observations, due_date, user_id))
+        credit_sale_id = cursor.lastrowid
+        
+        if manage_connection:
+            conn.commit()
+        
+        # O log de auditoria deve ser tratado pela função que gerencia a transação
+        # log_audit(user_id, 'CREATE_CREDIT_SALE', 'credit_sales', credit_sale_id, new_values=f"Cliente: {customer_id}, Valor: {amount}")
+        
+        return True, credit_sale_id
+    except sqlite3.Error:
+        if manage_connection and conn:
+            conn.rollback()
+        # Re-raise the exception to be handled by the caller
+        raise
+    finally:
+        if manage_connection and conn:
+            conn.close()
+
+def associate_sale_to_credit(credit_sale_id, sale_id, cursor=None):
+    """Associa o ID de uma venda a um registro de fiado existente."""
+    manage_connection = cursor is None
+    conn = None
+    if manage_connection:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE credit_sales SET sale_id = ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END WHERE id = ?", (sale_id, credit_sale_id))
+        if manage_connection:
+            conn.commit()
+        logging.info(f"Venda ID {sale_id} associada com sucesso ao fiado ID {credit_sale_id}.")
+        return True
+    except sqlite3.Error as e:
+        if manage_connection and conn:
+            conn.rollback()
+        logging.error(f"Erro de banco de dados ao associar venda ao fiado: {e}")
+        raise
+    finally:
+        if manage_connection and conn:
+            conn.close()
+
+# As funções abaixo não precisam de gerenciamento de transação explícito pois são apenas de leitura.
+# ... (o resto do arquivo permanece o mesmo)
 def get_all_customers():
-    """Retorna todos os clientes."""
+    """Retorna todos os clientes não deletados."""
     conn = get_db_connection()
-    rows = conn.execute('SELECT * FROM customers ORDER BY name').fetchall()
+    rows = conn.execute('SELECT * FROM customers WHERE is_deleted = 0 ORDER BY name').fetchall()
     conn.close()
     customers = []
     for row in rows:
@@ -44,7 +119,8 @@ def update_customer(customer_id, name, cpf=None, phone=None, address=None, credi
         credit_limit_cents = to_cents(Decimal(str(credit_limit)))
         cursor.execute('''
             UPDATE customers
-            SET name = ?, cpf = ?, phone = ?, address = ?, credit_limit = ?, is_blocked = ?
+            SET name = ?, cpf = ?, phone = ?, address = ?, credit_limit = ?, is_blocked = ?,
+                sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END
             WHERE id = ?
         ''', (name, cpf, phone, address, credit_limit_cents, is_blocked, customer_id))
         conn.commit()
@@ -57,27 +133,32 @@ def update_customer(customer_id, name, cpf=None, phone=None, address=None, credi
         conn.close()
 
 def delete_customer(customer_id):
-    """Deleta um cliente."""
+    """Marca um cliente como deletado (soft delete)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('DELETE FROM customers WHERE id = ?', (customer_id,))
+        # Verifica se o cliente tem saldo devedor antes de "excluir"
+        balance = get_customer_balance(customer_id)
+        if balance > Decimal('0.00'):
+            return False, "Este cliente não pode ser excluído pois possui saldo devedor."
+
+        cursor.execute("""UPDATE customers SET is_deleted = 1, sync_status = 'pending_update' WHERE id = ?""", (customer_id,))
         conn.commit()
         if cursor.rowcount > 0:
-            return True, "Cliente deletado com sucesso."
+            return True, "Cliente marcado como deletado com sucesso."
         return False, "Cliente não encontrado."
-    except sqlite3.IntegrityError:
-        return False, "Erro: Este cliente não pode ser deletado pois possui vendas a prazo associadas."
+    except sqlite3.Error as e:
+        return False, f"Erro de banco de dados: {e}"
     finally:
         conn.close()
 
 def search_customers(search_term):
-    """Busca clientes por nome, CPF ou telefone."""
+    """Busca clientes não deletados por nome, CPF ou telefone."""
     conn = get_db_connection()
     search_query = f'%{search_term}%'
     rows = conn.execute('''
         SELECT * FROM customers
-        WHERE name LIKE ? OR cpf LIKE ? OR phone LIKE ?
+        WHERE (name LIKE ? OR cpf LIKE ? OR phone LIKE ?) AND is_deleted = 0
         ORDER BY name
         LIMIT 20
     ''', (search_query, search_query, search_query)).fetchall()
@@ -89,36 +170,6 @@ def search_customers(search_term):
         customers.append(customer)
     return customers
 
-def create_credit_sale(customer_id, amount, user_id, sale_id=None, observations=None, due_date=None):
-    """Cria um novo registro de venda a crédito (fiado)."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        amount_cents = to_cents(Decimal(str(amount)))
-        cursor.execute('''
-            INSERT INTO credit_sales (customer_id, sale_id, amount, observations, due_date, user_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (customer_id, sale_id, amount_cents, observations, due_date, user_id))
-        credit_sale_id = cursor.lastrowid
-        conn.commit()
-        
-        # Para o log, busca o nome do cliente, se não encontrar, usa o ID
-        customer_info = f"ID Cliente: {customer_id}"
-        try:
-            customer = get_customer_by_id(customer_id)
-            if customer:
-                customer_info = f"Cliente: {customer['name']}"
-        except Exception:
-            pass # Mantém o ID do cliente se a busca falhar
-
-        log_audit(user_id, 'CREATE_CREDIT_SALE', 'credit_sales', credit_sale_id, new_values=f"{customer_info}, Valor: {amount}")
-        return True, credit_sale_id
-    except sqlite3.Error as e:
-        conn.rollback()
-        return False, f"Erro de banco de dados: {e}"
-    finally:
-        conn.close()
-
 def get_credit_sale_details(credit_sale_id):
     """Busca detalhes de uma venda a crédito, incluindo pagamentos."""
     conn = get_db_connection()
@@ -127,7 +178,7 @@ def get_credit_sale_details(credit_sale_id):
         FROM credit_sales cs
         JOIN customers c ON cs.customer_id = c.id
         JOIN users u ON cs.user_id = u.id
-        WHERE cs.id = ?
+        WHERE cs.id = ? AND c.is_deleted = 0 AND u.is_deleted = 0
     ''', (credit_sale_id,)).fetchone()
 
     if not sale_row:
@@ -157,7 +208,6 @@ def get_credit_sale_details(credit_sale_id):
 
     return sale_details
 
-
 def get_credit_sales_by_period(start_date, end_date):
     """Busca todas as vendas a crédito (fiados) criadas em um período específico."""
     conn = get_db_connection()
@@ -165,7 +215,7 @@ def get_credit_sales_by_period(start_date, end_date):
         SELECT cs.id, cs.amount, cs.status, cs.created_date, c.name as customer_name
         FROM credit_sales cs
         JOIN customers c ON cs.customer_id = c.id
-        WHERE DATE(cs.created_date) BETWEEN ? AND ?
+        WHERE DATE(cs.created_date) BETWEEN ? AND ? AND c.is_deleted = 0 AND cs.is_deleted = 0
         ORDER BY cs.created_date DESC
     """
     rows = conn.execute(query, (start_date, end_date)).fetchall()
@@ -206,7 +256,7 @@ def get_all_pending_credit_sales():
                (SELECT COALESCE(SUM(amount_paid), 0) FROM credit_payments WHERE credit_sale_id = cs.id) as total_paid_cents
         FROM credit_sales cs
         JOIN customers c ON cs.customer_id = c.id
-        WHERE cs.status IN ('pending', 'partially_paid')
+        WHERE cs.status IN ('pending', 'partially_paid') AND c.is_deleted = 0 AND cs.is_deleted = 0
         ORDER BY cs.created_date DESC
     """
     rows = conn.execute(query).fetchall()
@@ -223,7 +273,6 @@ def get_all_pending_credit_sales():
         sales.append(sale)
     return sales
 
-
 def get_credit_sales(status_filter=None):
     """Busca todas as vendas a crédito, com opção de filtro por status."""
     conn = get_db_connection()
@@ -237,10 +286,11 @@ def get_credit_sales(status_filter=None):
         FROM credit_sales cs
         JOIN customers c ON cs.customer_id = c.id
         JOIN users u ON cs.user_id = u.id
+        WHERE c.is_deleted = 0 AND u.is_deleted = 0 AND cs.is_deleted = 0
     '''
     params = []
     if status_filter and status_filter != 'all':
-        query += " WHERE cs.status = ?"
+        query += " AND cs.status = ?"
         params.append(status_filter)
 
     query += " ORDER BY cs.created_date DESC"
@@ -267,8 +317,8 @@ def get_customer_balance(customer_id):
     # e subtraindo os pagamentos já realizados.
     cursor.execute("""
         SELECT
-            (SELECT COALESCE(SUM(cs.amount), 0) FROM credit_sales cs WHERE cs.customer_id = ? AND cs.status != 'cancelled') -
-            (SELECT COALESCE(SUM(cp.amount_paid), 0) FROM credit_payments cp JOIN credit_sales cs ON cp.credit_sale_id = cs.id WHERE cs.customer_id = ?)
+            (SELECT COALESCE(SUM(cs.amount), 0) FROM credit_sales cs WHERE cs.customer_id = ? AND cs.status != 'cancelled' AND cs.is_deleted = 0) -
+            (SELECT COALESCE(SUM(cp.amount_paid), 0) FROM credit_payments cp JOIN credit_sales cs ON cp.credit_sale_id = cs.id WHERE cs.customer_id = ? AND cp.is_deleted = 0)
     """, (customer_id, customer_id))
     balance_cents = cursor.fetchone()[0]
     conn.close()
@@ -277,7 +327,7 @@ def get_customer_balance(customer_id):
 def get_customer_by_id(customer_id):
     """Busca um cliente pelo seu ID."""
     conn = get_db_connection()
-    row = conn.execute('SELECT * FROM customers WHERE id = ?', (customer_id,)).fetchone()
+    row = conn.execute('SELECT * FROM customers WHERE id = ? AND is_deleted = 0', (customer_id,)).fetchone()
     conn.close()
     if not row:
         return None
@@ -370,7 +420,7 @@ def get_customer_by_phone(phone):
     if not phone:
         return None
     conn = get_db_connection()
-    row = conn.execute('SELECT * FROM customers WHERE phone = ?', (phone,)).fetchone()
+    row = conn.execute('SELECT * FROM customers WHERE phone = ? AND is_deleted = 0', (phone,)).fetchone()
     conn.close()
     if not row:
         return None
@@ -378,23 +428,3 @@ def get_customer_by_phone(phone):
     customer['credit_limit'] = to_reais(customer['credit_limit'])
     return customer
 
-def associate_sale_to_credit(credit_sale_id, sale_id):
-    """Associa o ID de uma venda a um registro de fiado existente."""
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE credit_sales SET sale_id = ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END WHERE id = ?", (sale_id, credit_sale_id))
-        conn.commit()
-        if cursor.rowcount > 0:
-            logging.info(f"Venda ID {sale_id} associada com sucesso ao fiado ID {credit_sale_id}.")
-            return True
-        else:
-            logging.warning(f"Nenhum fiado encontrado com o ID {credit_sale_id} para associar à venda ID {sale_id}.")
-            return False
-    except sqlite3.Error as e:
-        logging.error(f"Erro de banco de dados ao associar venda ao fiado: {e}")
-        conn.rollback()
-        return False
-    finally:
-        if conn:
-            conn.close()

@@ -1,0 +1,2 @@
+
+ALTER TABLE sales ADD COLUMN change_amount INTEGER NOT NULL DEFAULT 0;

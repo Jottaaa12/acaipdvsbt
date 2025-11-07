@@ -650,3 +650,24 @@ class SyncManager(QObject):
         except Exception as e:
             logging.error(f"SyncManager: Erro ao construir payload para {table_name} (Local ID: {row['id']}): {e}", exc_info=True)
             return None
+
+    def truncate_supabase_data(self):
+        """
+        Chama uma função RPC no Supabase para truncar todas as tabelas transacionais.
+        Retorna (True, "Sucesso") ou (False, "Mensagem de Erro").
+        """
+        try:
+            logging.warning("Iniciando chamada RPC para truncate_transactional_data no Supabase.")
+            self.sync_status_updated.emit("Enviando comando de limpeza para a nuvem...")
+
+            # Chama a função SQL `truncate_transactional_data` no Supabase
+            self.api_client.get_client().rpc('truncate_transactional_data', {}).execute()
+
+            logging.info("Comando truncate_transactional_data executado com sucesso no Supabase.")
+            self.sync_status_updated.emit("Dados da nuvem limpos com sucesso.")
+            return True, "Dados transacionais da nuvem foram limpos com sucesso."
+
+        except Exception as e:
+            logging.error(f"Erro ao executar RPC truncate_transactional_data: {e}", exc_info=True)
+            self.sync_status_updated.emit(f"Erro ao limpar dados da nuvem: {e}")
+            return False, f"Erro ao executar a limpeza na nuvem: {e}"

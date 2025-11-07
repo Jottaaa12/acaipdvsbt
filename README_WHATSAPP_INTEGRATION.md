@@ -66,6 +66,18 @@ PDV Moderno/
 
 ## ⚙️ Configuração
 
+### Dependências Obrigatórias
+
+**Atenção:** A integração com o WhatsApp depende do **Node.js** para funcionar. O Node.js é um ambiente de execução JavaScript e deve ser instalado no computador onde o PDV Moderno está em execução.
+
+Após a instalação do PDV Moderno, é obrigatório executar o seguinte comando no diretório de instalação do sistema (normalmente `C:\Program Files\PDV Moderno`):
+
+```bash
+npm install @whiskeysockets/baileys pino
+```
+
+Este comando instalará as bibliotecas necessárias para a comunicação com o WhatsApp. Sem essa etapa, a funcionalidade de envio de mensagens não funcionará.
+
 ### Arquivo `whatsapp_config.json`
 
 ```json

@@ -15,6 +15,7 @@ from ui.backup_dialog import BackupDialog
 from ui.shortcut_management_widget import ShortcutManagementWidget
 from ui.settings.establishment_widget import EstablishmentWidget
 from ui.settings.hardware_widget import HardwareWidget
+from ui.settings.supabase_widget import SupabaseWidget
 from ui.settings.whatsapp_widget import WhatsAppWidget
 from data.sync_manager import SyncManager
 
@@ -132,6 +133,7 @@ class SettingsPage(QWidget):
                 ("users", "Usuários", IconTheme.USERS, self.open_user_management),
                 ("audit_log", "Log de Auditoria", IconTheme.REPORTS, self.open_audit_log),
                 ("whatsapp", "Configuração WhatsApp", IconTheme.SALES, self.open_whatsapp_settings),
+                ("supabase", "Sincronização", IconTheme.SYNC, self.open_supabase_settings),
                 ("backup", "Backup do Sistema", IconTheme.SAVE, self.open_backup_dialog),
                 ("data_management", "Gerenciamento de Dados", IconTheme.DATABASE, self.open_data_management),
                 ("log_console", "Console de Logs", IconTheme.REPORTS, self.open_log_console_requested.emit)
@@ -194,6 +196,10 @@ class SettingsPage(QWidget):
     def open_establishment_settings(self):
         widget = EstablishmentWidget()
         self._create_modal_dialog("Configurações do Estabelecimento", widget)
+
+    def open_supabase_settings(self):
+        widget = SupabaseWidget()
+        self._create_modal_dialog("Configurações de Sincronização", widget)
 
     def open_hardware_settings(self):
         widget = HardwareWidget(self.scale_handler, self.printer_handler)

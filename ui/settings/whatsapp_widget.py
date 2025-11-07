@@ -219,6 +219,20 @@ class WhatsAppWidget(QWidget):
         test_layout.addWidget(self.send_test_button)
         layout.addWidget(test_group)
 
+        # Notification Number Config Group
+        notification_number_group = QGroupBox("Número de Notificação Padrão")
+        notification_number_layout = QGridLayout(notification_number_group)
+        notification_number_layout.setSpacing(10)
+
+        self.notification_number_input = QLineEdit(placeholderText="Número com DDI (Ex: 5511912345678)")
+        self.save_notification_number_button = QPushButton("Salvar Número Padrão")
+        self.save_notification_number_button.setMinimumHeight(30)
+
+        notification_number_layout.addWidget(QLabel("Este número será usado como padrão para notificações do sistema (se configurado): "), 0, 0, 1, 2)
+        notification_number_layout.addWidget(self.notification_number_input, 1, 0, 1, 1)
+        notification_number_layout.addWidget(self.save_notification_number_button, 1, 1, 1, 1)
+        layout.addWidget(notification_number_group)
+
         qr_info_group = QGroupBox("QR Code")
         qr_info_layout = QVBoxLayout(qr_info_group)
         qr_info_label = QLabel("Ao clicar em 'Conectar', o QR Code será exibido em uma nova janela para facilitar a leitura.")
@@ -234,6 +248,7 @@ class WhatsAppWidget(QWidget):
         self.remove_manager_button.clicked.connect(self._remove_manager)
         self.save_managers_button.clicked.connect(self._save_managers)
         self.send_test_button.clicked.connect(self.send_test_whatsapp_message)
+        self.save_notification_number_button.clicked.connect(self._save_notification_number)
         
         return connection_tab
 
@@ -355,9 +370,12 @@ class WhatsAppWidget(QWidget):
             numbers = [num.strip() for num in numbers_str.split(',') if num.strip()]
             self.managers_list_widget.addItems(numbers)
         
-        # Load the test number from the old config for convenience, if it exists
+        # Load the notification number from config.json into the dedicated input
         whatsapp_config = self.config_manager.get_section('whatsapp')
-        self.test_number_input.setText(whatsapp_config.get('notification_number', ''))
+        notification_number = whatsapp_config.get('notification_number', '')
+        self.notification_number_input.setText(notification_number)
+        # Also set the test number input for convenience, if it's still desired
+        self.test_number_input.setText(notification_number)
 
     def _add_manager(self):
         number = self.new_manager_input.text().strip()
@@ -396,6 +414,19 @@ class WhatsAppWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Não foi possível salvar a lista de gerentes.\n\nErro: {e}")
             logging.error(f"Erro ao salvar gerentes do WhatsApp: {e}", exc_info=True)
+
+    def _save_notification_number(self):
+        number = self.notification_number_input.text().strip()
+        if not number:
+            QMessageBox.warning(self, "Campo Vazio", "Por favor, insira um número de telefone para a notificação padrão.")
+            return
+        
+        try:
+            self.config_manager.update_section('whatsapp', {'notification_number': number})
+            QMessageBox.information(self, "Sucesso", "Número de notificação padrão salvo com sucesso!")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Não foi possível salvar o número de notificação padrão.\n\nErro: {e}")
+            logging.error(f"Erro ao salvar número de notificação padrão: {e}", exc_info=True)
 
     def _create_toggle_switch(self, text):
         widget = QWidget()

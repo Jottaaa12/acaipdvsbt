@@ -206,8 +206,7 @@ def _run_migration_003_add_sync_columns():
             'credit_sales',
             'credit_payments',
             'estoque_grupos',
-            'estoque_itens',
-            'cash_sessions' # Adicionado para correção
+            'estoque_itens'
         ]
 
         for table in tables_to_sync:
@@ -216,22 +215,21 @@ def _run_migration_003_add_sync_columns():
             # 1. id_web: Armazena o ID do registro na nuvem (Supabase)
             _add_column_if_not_exists(cursor, table, 'id_web', 'TEXT')
 
-            # Criar um índice único em id_web.
+            # Criar um índice único em id_web. Em SQLite, índices únicos permitem múltiplos valores NULL,
+            # o que resolve o problema de adicionar a coluna a uma tabela com dados existentes.
             index_name = f"idx_{table}_id_web_unique"
             cursor.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table}(id_web)")
 
             # 2. sync_status: Controla o estado de sincronização
+            #    'pending_create': Novo local, precisa ser enviado.
+            #    'pending_update': Atualizado local, precisa ser enviado.
+            #    'synced': Sincronizado.
+            # Marcamos todos os registros existentes como 'pending_create'
+            # para forçar uma sincronização inicial completa na primeira vez.
             _add_column_if_not_exists(cursor, table, 'sync_status', "TEXT NOT NULL DEFAULT 'pending_create'")
 
             # 3. last_modified_at: Timestamp da última modificação local
-            cursor.execute(f"PRAGMA table_info({table})")
-            columns = [row['name'] for row in cursor.fetchall()]
-            if 'last_modified_at' not in columns:
-                logging.info(f"Adicionando coluna 'last_modified_at' à tabela '{table}'...")
-                cursor.execute(f"ALTER TABLE {table} ADD COLUMN last_modified_at TIMESTAMP")
-                cursor.execute(f"UPDATE {table} SET last_modified_at = CURRENT_TIMESTAMP")
-            else:
-                logging.info(f"Coluna 'last_modified_at' já existe em '{table}'.")
+            _add_column_if_not_exists(cursor, table, 'last_modified_at', "TIMESTAMP NOT NULL DEFAULT '2000-01-01 00:00:00'")
 
             # 4. Criar Trigger para atualizar 'last_modified_at' em cada UPDATE
             trigger_name = f"trg_{table}_update_last_modified"
@@ -247,22 +245,8 @@ def _run_migration_003_add_sync_columns():
                 END;
             """)
 
-            # 5. Criar Trigger para definir 'last_modified_at' em cada INSERT
-            insert_trigger_name = f"trg_{table}_insert_last_modified"
-            cursor.execute(f"DROP TRIGGER IF EXISTS {insert_trigger_name}")
-            cursor.execute(f"""
-                CREATE TRIGGER {insert_trigger_name}
-                AFTER INSERT ON {table}
-                FOR EACH ROW
-                BEGIN
-                    UPDATE {table}
-                    SET last_modified_at = CURRENT_TIMESTAMP
-                    WHERE id = NEW.id;
-                END;
-            """)
-
             logging.info(f"Tabela '{table}' atualizada para sincronização.")
-
+        
         conn.commit()
         logging.info("Migração 003 concluída com sucesso.")
     except sqlite3.Error as e:
@@ -817,34 +801,52 @@ def _run_migration_002_add_stock_tables(cursor):
     pass
 
 def _run_migration_004_fix_missing_sync_columns(cursor):
-    logging.warning("Função de migração _run_migration_004_fix_missing_sync_columns não implementada.")
-    pass
-
-def _run_migration_005_add_last_sync_setting(cursor):
     """
-    Migração 005: Adiciona a chave 'last_sync_timestamp' à tabela de settings
-    para controlar a sincronização de download.
+    Migração 004: Adiciona colunas de sincronização a tabelas
+    que foram esquecidas na migração 003.
     """
-    logging.info("Executando migração 005: Adicionando 'last_sync_timestamp'...")
+    logging.info("Executando migração 004: Adicionando colunas de sincronização faltantes...")
 
-    try:
-        cursor.execute('''
-            INSERT OR IGNORE INTO settings (key, value)
-            VALUES (?, ?)
-        ''', ('last_sync_timestamp', '1970-01-01T00:00:00+00:00'))
-        logging.info("Configuração 'last_sync_timestamp' adicionada com sucesso.")
-    except Exception as e:
-        logging.error(f"Erro ao adicionar 'last_sync_timestamp': {e}", exc_info=True)
-        raise
+    # Tabelas transacionais que faltaram
+    tables_to_fix = [
+        'cash_sessions',
+        'cash_movements',
+        'cash_counts',
+        'sale_payments',
+        'audit_log'
+        # 'pedidos_externos_pendentes' pode ser adicionada se necessário
+    ]
 
-    logging.info("Migração 005 concluída com sucesso.")
+    for table in tables_to_fix:
+        logging.info(f"Processando tabela: {table}")
+
+        _add_column_if_not_exists(cursor, table, 'id_web', 'TEXT UNIQUE')
+        _add_column_if_not_exists(cursor, table, 'sync_status', "TEXT NOT NULL DEFAULT 'pending_create'")
+        _add_column_if_not_exists(cursor, table, 'last_modified_at', "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+
+        # Recriar Trigger para atualizar 'last_modified_at'
+        trigger_name = f"trg_{table}_update_last_modified"
+        cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+        cursor.execute(f"""
+            CREATE TRIGGER {trigger_name}
+            AFTER UPDATE ON {table}
+            FOR EACH ROW
+            BEGIN
+                UPDATE {table}
+                SET last_modified_at = CURRENT_TIMESTAMP
+                WHERE id = OLD.id;
+            END;
+        """)
+
+        logging.info(f"Tabela '{table}' atualizada para sincronização.")
+
+    logging.info("Migração 004 concluída com sucesso.")
 
 MIGRATIONS = [
     ('001_add_credit_sale_due_date', _run_migration_001_add_credit_sale_due_date),
     ('002_add_stock_tables', _run_migration_002_add_stock_tables),
     ('003_add_sync_columns', _run_migration_003_add_sync_columns),
     ('004_fix_missing_sync_columns', _run_migration_004_fix_missing_sync_columns),
-    ('005_add_last_sync_setting', _run_migration_005_add_last_sync_setting), # <-- ADICIONAR
 ]
 
 if __name__ == '__main__':

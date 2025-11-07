@@ -13,10 +13,7 @@ def create_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS product_groups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                name TEXT NOT NULL UNIQUE
             )
         ''')
 
@@ -31,9 +28,6 @@ def create_tables():
                 quantity INTEGER NOT NULL DEFAULT 0,
                 sale_type TEXT NOT NULL CHECK(sale_type IN ('unit', 'weight')),
                 group_id INTEGER,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (group_id) REFERENCES product_groups (id)
             )
         ''')
@@ -42,10 +36,7 @@ def create_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS payment_methods (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                name TEXT NOT NULL UNIQUE
             )
         ''')
 
@@ -57,10 +48,7 @@ def create_tables():
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK(role IN ('operador', 'gerente')),
                 active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -88,9 +76,6 @@ def create_tables():
                 difference INTEGER,
                 status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed')),
                 observations TEXT,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
@@ -134,9 +119,6 @@ def create_tables():
                 user_id INTEGER,
                 cash_session_id INTEGER,
                 training_mode BOOLEAN DEFAULT 0,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (cash_session_id) REFERENCES cash_sessions (id)
             )
@@ -162,9 +144,6 @@ def create_tables():
                 quantity REAL NOT NULL,
                 unit_price INTEGER NOT NULL,
                 total_price INTEGER NOT NULL,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (sale_id) REFERENCES sales (id),
                 FOREIGN KEY (product_id) REFERENCES products (id)
             )
@@ -195,38 +174,27 @@ def create_tables():
                 address TEXT,
                 credit_limit INTEGER DEFAULT 0, -- Limite de crédito em centavos. 0 = sem limite.
                 is_blocked BOOLEAN DEFAULT 0, -- Para bloquear clientes inadimplentes
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Verifica se credit_sales_old existe. Se sim, não cria credit_sales aqui, a migração cuidará disso.
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='credit_sales_old'")
-        if cursor.fetchone():
-            logging.info("Tabela 'credit_sales_old' detectada. Pulando a criação de 'credit_sales' para a migração.")
-        else:
-            logging.info("Criando tabela credit_sales...")
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS credit_sales (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    customer_id INTEGER NOT NULL,
-                    sale_id INTEGER,
-                    amount INTEGER NOT NULL,
-                    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'partially_paid', 'paid', 'cancelled')),
-                    observations TEXT,
-                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    due_date DATE,
-                    user_id INTEGER NOT NULL,
-                    id_web TEXT UNIQUE,
-                    sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                    last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
-                    FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id)
-                )
-            ''')
+        logging.info("Criando tabela credit_sales...")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS credit_sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                sale_id INTEGER, -- Venda original (opcional, mas recomendado)
+                amount INTEGER NOT NULL, -- Valor total do fiado em centavos
+                status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'partially_paid', 'paid', 'cancelled')),
+                observations TEXT,
+                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                due_date DATE,
+                user_id INTEGER NOT NULL,
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+                FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        ''')
 
         logging.info("Criando tabela credit_payments...")
         cursor.execute('''
@@ -238,9 +206,6 @@ def create_tables():
                 user_id INTEGER NOT NULL,
                 payment_method TEXT NOT NULL, -- Dinheiro, PIX, Cartão, etc.
                 cash_session_id INTEGER, -- Sessão de caixa em que o pagamento foi recebido
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (credit_sale_id) REFERENCES credit_sales(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users(id),
                 FOREIGN KEY (cash_session_id) REFERENCES cash_sessions(id) ON DELETE SET NULL
@@ -252,10 +217,7 @@ def create_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS estoque_grupos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT UNIQUE NOT NULL,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                nome TEXT UNIQUE NOT NULL
             )
         ''')
 
@@ -269,26 +231,10 @@ def create_tables():
                 estoque_atual INTEGER NOT NULL,
                 estoque_minimo INTEGER NOT NULL DEFAULT 0,
                 unidade_medida TEXT,
-                id_web TEXT UNIQUE,
-                sync_status TEXT NOT NULL DEFAULT 'pending_create',
-                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (grupo_id) REFERENCES estoque_grupos (id)
             )
         ''')
-
-
-        logging.info("Criando tabela pedidos_externos_pendentes...")
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pedidos_externos_pendentes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source TEXT NOT NULL,
-                order_id TEXT UNIQUE NOT NULL, -- ID do pedido na plataforma de origem (ped_id)
-                order_data TEXT NOT NULL, -- JSON completo dos detalhes do pedido
-                status TEXT NOT NULL DEFAULT 'NEW', -- Status de visualização na UI (NEW, VIEWED)
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
+        
         logging.info("Criando índices...")
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode);')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales (sale_date);')
@@ -330,16 +276,15 @@ def create_tables():
             )
         ''')
 
-        logging.info("Inserindo configurações padrão...")
-        default_settings = [
+        logging.info("Inserindo configurações padrão do WhatsApp...")
+        whatsapp_configs = [
             ('whatsapp_notifications_enabled', 'false'),
             ('whatsapp_notification_number', ''),
             ('whatsapp_manager_numbers', ''),
-            ('whatsapp_notifications_globally_enabled', 'true'),
-            ('last_sync_timestamp', '1970-01-01T00:00:00+00:00')
+            ('whatsapp_notifications_globally_enabled', 'true')
         ]
 
-        for key, value in default_settings:
+        for key, value in whatsapp_configs:
             cursor.execute('''
                 INSERT OR IGNORE INTO settings (key, value)
                 VALUES (?, ?)

@@ -91,7 +91,7 @@ class CustomerManagementPage(QWidget):
         customer_name = self.table.item(row, 1).text()
 
         reply = QMessageBox.question(self, "Confirmar Exclusão", 
-                                     f"Tem certeza que deseja excluir o cliente '{customer_name}'?\nEsta ação não pode ser desfeita.",
+                                     f"Tem certeza que deseja excluir o cliente '{customer_name}'?\nO cliente será removido da visualização, mas seus dados serão mantidos para referência futura.",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 
         if reply == QMessageBox.StandardButton.Yes:

@@ -34,7 +34,7 @@ def add_product(description, barcode, price, stock, sale_type, group_id):
 
 def get_all_products():
     conn = get_db_connection()
-    rows = conn.execute('SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id ORDER BY p.description').fetchall()
+    rows = conn.execute('SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.is_deleted = 0 ORDER BY p.description').fetchall()
     conn.close()
     products = []
     for row in rows:
@@ -55,7 +55,7 @@ def get_product_by_barcode_cached(barcode: str):
 def get_product_by_barcode(barcode):
     """Busca produto por código de barras."""
     conn = get_db_connection()
-    row = conn.execute('SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.barcode = ?', (barcode,)).fetchone()
+    row = conn.execute('SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.barcode = ? AND p.is_deleted = 0', (barcode,)).fetchone()
     conn.close()
     if row:
         product = dict(row)
@@ -76,7 +76,7 @@ def get_product_by_barcode_or_name(identifier: str):
     # Se não encontrar, busca pelo nome
     conn = get_db_connection()
     row = conn.execute(
-        'SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.description LIKE ? LIMIT 1',
+        'SELECT p.*, g.name as group_name FROM products p LEFT JOIN product_groups g ON p.group_id = g.id WHERE p.description LIKE ? AND p.is_deleted = 0 LIMIT 1',
         (f'%{identifier}%',)
     ).fetchone()
     conn.close()
@@ -134,19 +134,17 @@ def update_product(product_id, description, barcode, price, stock, sale_type, gr
         conn.close()
 
 def delete_product(product_id):
-    """Deleta um produto do banco de dados."""
+    """Marca um produto como deletado (soft delete)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
+        cursor.execute("""UPDATE products SET is_deleted = 1, sync_status = 'pending_update' WHERE id = ?""", (product_id,))
         conn.commit()
         if cursor.rowcount > 0:
-            return True, "Produto deletado com sucesso."
+            return True, "Produto marcado como deletado com sucesso."
         return False, "Produto não encontrado."
-    except sqlite3.IntegrityError:
-        return False, "Erro: Este produto não pode ser deletado pois está associado a vendas existentes."
     except sqlite3.Error as e:
-        return False, f"Erro de banco de dados ao deletar produto: {e}"
+        return False, f"Erro de banco de dados ao marcar produto como deletado: {e}"
     finally:
         conn.close()
 

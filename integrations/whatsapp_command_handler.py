@@ -32,11 +32,11 @@ class CommandHandler:
         self.authorized_managers = normalized_managers
         logging.info(f"Gerentes autorizados (normalizados) no WhatsApp: {self.authorized_managers}")
 
-    def process_command(self, command_data: dict, manager) -> tuple[str | None, str | None]:
+    def process_command(self, command_data: dict, manager) -> List[tuple[str, str]]:
         """
-        Processa um comando, registra a auditoria e retorna a resposta e o destinatário.
+        Processa um comando, registra a auditoria e retorna uma LISTA de tuplas de resposta.
         Recebe a instância do manager para acessar métodos de status e logging.
-        Retorna: (response_text, recipient_phone) ou (None, None)
+        Retorna: [(response_text, recipient_phone)] ou []
         """
         sender_phone_raw = command_data.get('sender')
         command_text = command_data.get('text', '').strip()
@@ -45,7 +45,7 @@ class CommandHandler:
         validation = self.config.validate_phone(sender_phone_raw)
         if not validation['valid']:
             logging.warning(f"Número de remetente com formato inválido foi ignorado: {sender_phone_raw}")
-            return None, None
+            return []
         
         sender_phone = validation['normalized']
 
@@ -54,7 +54,7 @@ class CommandHandler:
             logging.warning(f"Comando de número não autorizado foi ignorado: {sender_phone} (Lista de autorizados: {self.authorized_managers})")
             # Log de tentativa de comando não autorizado
             manager.logger.log_command(sender=sender_phone, command=command_text, success=False, response_preview="Acesso negado")
-            return None, None
+            return []
 
         parts = command_text.split()
         command = parts[0].lower()
@@ -94,9 +94,9 @@ class CommandHandler:
             manager.logger.log_command(sender=sender_phone, command=command_text, success=False, response_preview="Comando não reconhecido")
 
         if response:
-            return response, sender_phone
+            return [(response, sender_phone)]
         
-        return None, None
+        return []
 
     def _handle_fiado(self, args: list):
         """Lida com subcomandos para o sistema de fiado."""
@@ -164,7 +164,7 @@ class CommandHandler:
     def _handle_fiado_listar(self):
         """Lista os fiados pendentes."""
         try:
-            sales = db.get_credit_sales(filters={'status': 'pending'})
+            sales = db.get_credit_sales(status_filter='pending')
             if not sales:
                 return "✅ Nenhum fiado pendente encontrado."
 
@@ -324,7 +324,8 @@ class CommandHandler:
 
         customer_name = " ".join(args)
         try:
-            sales = db.get_credit_sales(filters={'customer_name': customer_name})
+            all_sales = db.get_credit_sales()
+            sales = [s for s in all_sales if s['customer_name'].lower() == customer_name.lower()]
             if not sales:
                 return f"🔎 Nenhum fiado encontrado para '{customer_name}'."
 

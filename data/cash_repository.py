@@ -110,7 +110,7 @@ def close_cash_session(session_id, user_id, final_amount, cash_counts, observati
             SELECT COALESCE(SUM(sp.amount), 0) as total
             FROM sale_payments sp
             JOIN sales s ON sp.sale_id = s.id
-            WHERE s.cash_session_id = ? AND sp.payment_method = 'Dinheiro' AND s.training_mode = 0
+            WHERE s.cash_session_id = ? AND sp.payment_method = 1 AND s.training_mode = 0
         ''', (session_id,)).fetchone()['total']
 
         # Soma do troco (valores já em centavos no DB)
@@ -218,13 +218,14 @@ def get_cash_session_report(session_id):
 
     sales_rows = conn.execute('''
         SELECT
-            sp.payment_method,
+            pm.name as payment_method,
             COUNT(DISTINCT s.id) as count,
             SUM(sp.amount) as total
         FROM sale_payments sp
         JOIN sales s ON sp.sale_id = s.id
+        JOIN payment_methods pm ON sp.payment_method = pm.id
         WHERE s.cash_session_id = ? AND s.training_mode = 0
-        GROUP BY sp.payment_method
+        GROUP BY pm.name
     ''', (session_id,)).fetchall()
     sales_list = []
     for row in sales_rows:
@@ -331,12 +332,13 @@ def get_payment_summary_by_cash_session(session_id):
     ''', (session_id,)).fetchone()['total']
 
     rows = conn.execute('''
-        SELECT sp.payment_method, COUNT(DISTINCT sp.sale_id) as count, SUM(sp.amount) as total
+        SELECT pm.name as payment_method, COUNT(DISTINCT sp.sale_id) as count, SUM(sp.amount) as total
         FROM sale_payments sp
         JOIN sales s ON sp.sale_id = s.id
+        JOIN payment_methods pm ON sp.payment_method = pm.id
         WHERE s.cash_session_id = ? AND s.training_mode = 0
-        GROUP BY sp.payment_method
-        ORDER BY sp.payment_method
+        GROUP BY pm.name
+        ORDER BY pm.name
     ''', (session_id,)).fetchall()
     conn.close()
 
@@ -442,7 +444,7 @@ def get_current_cash_status():
         SELECT COALESCE(SUM(sp.amount), 0) as total
         FROM sale_payments sp
         JOIN sales s ON sp.sale_id = s.id
-        WHERE s.cash_session_id = ? AND sp.payment_method = 'Dinheiro' AND s.training_mode = 0
+        WHERE s.cash_session_id = ? AND sp.payment_method = 1 AND s.training_mode = 0
     ''', (session_id,)).fetchone()['total']
 
     # Soma do troco (valores já em centavos no DB)
@@ -478,3 +480,10 @@ def get_current_cash_status():
         'cash_sales': to_reais(cash_sales_cents),
         'current_balance': to_reais(current_balance_cents)
     }
+
+def get_cash_session_by_id(session_id):
+    """Busca uma sessão de caixa pelo seu ID."""
+    conn = get_db_connection()
+    row = conn.execute('SELECT * FROM cash_sessions WHERE id = ?', (session_id,)).fetchone()
+    conn.close()
+    return row

@@ -13,6 +13,7 @@ from .whatsapp_manager import WhatsAppManager
 from .whatsapp_config import get_whatsapp_config
 from utils import get_data_path
 import database as db
+from data.payment_method_repository import get_all_payment_methods
 
 class WhatsAppSalesNotifier:
     """
@@ -326,17 +327,22 @@ class WhatsAppSalesNotifier:
                     items_str += f"  - {desc} ({qty} un) - R$ {total_price:.2f}\n"
 
             # --- Construção do Pagamento (com detalhamento) ---
+            payment_methods_from_db = db.get_all_payment_methods()
+            payment_method_map = {method['id']: method['name'] for method in payment_methods_from_db}
+
             total_paid = sum(Decimal(p['amount']) for p in payment_details)
             payment_str = f"💰 *PAGAMENTO*\n"
 
             if len(payment_details) > 1:
                 # Detalha cada pagamento se houver mais de um
                 for p in payment_details:
-                    payment_str += f"  - {p['method']}: R$ {Decimal(p['amount']):.2f}\n"
+                    method_name = payment_method_map.get(p['method'], f"ID {p['method']}")
+                    payment_str += f"  - {method_name}: R$ {Decimal(p['amount']):.2f}\n"
                 payment_str += f"  - *Valor Total Pago:* R$ {total_paid:.2f}\n"
             elif payment_details:
                 # Formato simples para pagamento único
-                payment_str += f"  - Forma: {payment_details[0]['method']}\n"
+                method_name = payment_method_map.get(payment_details[0]['method'], f"ID {payment_details[0]['method']}")
+                payment_str += f"  - Forma: {method_name}\n"
                 payment_str += f"  - Valor Pago: R$ {total_paid:.2f}\n"
             else:
                 # Caso de fiado, onde a lista de pagamentos pode ser vazia

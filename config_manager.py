@@ -14,33 +14,51 @@ class ConfigManager:
     def get_default_config(self):
         """Retorna a estrutura de configuração padrão para a primeira execução."""
         return {
-            "hardware_mode": "production",  # Inicia em modo de produção por padrão
+            "store": {
+                "name": "Acai sabor da terra",
+                "address": "Endereço da Loja",
+                "phone": "Telefone da Loja",
+                "cnpj": "CNPJ da Loja"
+            },
+            "shortcuts": [
+                {
+                    "name": "acai 200g",
+                    "barcode": "acai200"
+                },
+                {
+                    "name": "acai 240g",
+                    "barcode": "acai240"
+                },
+                {
+                    "name": "acai 300g",
+                    "barcode": "acai300"
+                }
+            ],
+            "printer": {
+                "type": "thermal_bluetooth",
+                "usb_vendor_id": "",
+                "usb_product_id": "",
+                "bluetooth_port": "COM4",
+                "serial_port": "",
+                "serial_baudrate": 9600,
+                "network_ip": "",
+                "network_port": 9100,
+                "auto_print_receipt": False
+            },
+            "hardware_mode": "production",
             "scale": {
                 "port": "COM3",
-                "baudrate": 9600,
-                "protocol": "toledo_mgv6"
-            },
-            "printer": {
-                "type": "usb",
-                "vendor_id": "0x04b8",
-                "product_id": "0x0e28",
-                "name": "EPSON TM-T20X"
-            },
-            "establishment": {
-                "name": "Nome do Estabelecimento",
-                "address": "Endereço do Estabelecimento",
-                "phone": "(99) 99999-9999"
+                "baudrate": 4800,
+                "bytesize": 8,
+                "parity": "N",
+                "stopbits": 1
             },
             "whatsapp": {
-                "enabled": False,
-                "notifications": {
-                    "sales": False,
-                    "cash_closing": False
-                }
+                "notification_number": "5588981905006"
             },
             "supabase": {
-                "url": "",
-                "key": ""
+                "url": "https://clncykjzukfjxvqjbcgx.supabase.co",
+                "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbmN5a2p6dWtmanh2cWpiY2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NzUyNzcsImV4cCI6MjA3NzE1MTI3N30.UoHNsGHlmV0HQ1HHMyWRrqQiEQyups0CMefCeZ5zDKU"
             }
         }
 

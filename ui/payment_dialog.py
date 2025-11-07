@@ -6,6 +6,8 @@ from PyQt6.QtGui import QFont, QShortcut, QKeySequence, QDoubleValidator
 from PyQt6.QtCore import Qt, pyqtSignal
 from decimal import Decimal, InvalidOperation
 from .theme import ModernTheme
+import database as db
+import logging
 
 class PaymentDialog(QDialog):
     credit_sale_requested = pyqtSignal()
@@ -24,6 +26,9 @@ class PaymentDialog(QDialog):
         self.remaining_amount = self.total_amount
         self.payments = []
         self.result_data = None
+        
+        # Carregar métodos de pagamento do banco de dados
+        self.db_payment_methods = db.get_all_payment_methods()
 
         # --- UI Initialization ---
         self.setup_ui()
@@ -70,27 +75,36 @@ class PaymentDialog(QDialog):
         main_layout.addWidget(self.remove_payment_button)
         self.payments_list.itemSelectionChanged.connect(self.update_remove_button_state)
 
-        # --- Payment Method Selection (Modernized) ---
+        # --- Payment Method Selection (Dynamic) ---
         payment_methods_frame = QFrame()
         payment_grid = QGridLayout(payment_methods_frame)
         payment_grid.setSpacing(15)
 
+        # Hardcoded buttons for layout purposes
         self.cash_button = QPushButton("💵 F1 - Dinheiro")
         self.credit_button = QPushButton("💳 F2 - Crédito")
         self.debit_button = QPushButton("💳 F3 - Débito")
         self.pix_button = QPushButton("⚡ F4 - PIX")
         self.credit_sale_button = QPushButton("👤 F5 - Fiado")
 
-        self.payment_buttons_list = [
-            self.cash_button, self.credit_button, self.debit_button, self.pix_button
-        ]
-
-        self.payment_buttons_map = {
-            "Dinheiro": self.cash_button, "Crédito": self.credit_button,
-            "Débito": self.debit_button, "PIX": self.pix_button
+        # Map from hardcoded button object to its name for dynamic assignment
+        button_name_map = {
+            self.cash_button: "Dinheiro",
+            self.credit_button: "Crédito",
+            self.debit_button: "Débito",
+            self.pix_button: "PIX"
         }
 
-        for btn in self.payment_buttons_list:
+        self.payment_buttons_map = {}
+        # Dynamically associate buttons with DB methods
+        for btn, name in button_name_map.items():
+            for db_method in self.db_payment_methods:
+                if db_method['name'].upper() == name.upper():
+                    self.payment_buttons_map[btn] = db_method
+                    break
+
+        # Setup button properties and connect signals
+        for btn in button_name_map.keys():
             btn.setObjectName("paymentMethodButton")
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
@@ -113,7 +127,6 @@ class PaymentDialog(QDialog):
         validator = QDoubleValidator(0.00, 99999.99, 2)
         validator.setNotation(QDoubleValidator.Notation.StandardNotation)
         self.amount_paid_input.setValidator(validator)
-        self.amount_paid_input.returnPressed.connect(self.on_add_payment_clicked)
         main_layout.addWidget(self.amount_paid_input)
 
         # --- Action Buttons ---
@@ -149,46 +162,42 @@ class PaymentDialog(QDialog):
 
         self.credit_sale_button.clicked.connect(self.on_credit_sale_clicked)
 
+        # Shortcut for deleting a payment
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self).activated.connect(self.on_remove_payment_clicked)
+
     def on_credit_sale_clicked(self):
         self.credit_sale_requested.emit()
         self.accept() # Close the payment dialog
 
     def get_selected_payment_method(self):
-        for method, btn in self.payment_buttons_map.items():
+        for btn, method_obj in self.payment_buttons_map.items():
             if btn.isChecked():
-                return method
+                return method_obj
         return None
 
     def on_payment_method_selected(self):
         method = self.get_selected_payment_method()
-        # Extract the core method name from the button text for logic
-        if method:
-            clean_method = method.split(' - ')[-1]
-        else:
-            clean_method = None
+        if not method:
+            return
 
-        if clean_method == "Dinheiro":
+        if method['name'] == "Dinheiro":
             self.amount_paid_input.setFocus()
             self.amount_paid_input.selectAll()
-        elif clean_method:
+        else:
             # For other methods, assume full remaining amount
             self.amount_paid_input.setText(str(self.remaining_amount).replace('.', ','))
             self.amount_paid_input.setFocus()
             self.amount_paid_input.selectAll()
-            # Pressing Enter should finalize immediately
-            self.amount_paid_input.returnPressed.connect(self.on_add_payment_clicked)
 
     def on_add_payment_clicked(self):
-        method = self.get_selected_payment_method()
-        if not method:
-            # Simple feedback, could be a QMessageBox
+        method_obj = self.get_selected_payment_method()
+        if not method_obj:
             self.remaining_label.setText("Selecione um método!")
             return
 
         amount_str = self.amount_paid_input.text().strip().replace(',', '.')
         
-        # Special case for cash: if input is empty, assume exact remaining amount
-        if "Dinheiro" in method and not amount_str:
+        if not amount_str:
             amount = self.remaining_amount
         else:
             try:
@@ -199,8 +208,16 @@ class PaymentDialog(QDialog):
                 self.remaining_label.setText("Valor inválido!")
                 return
 
-        self.payments.append({'method': method, 'amount': amount})
+        self.payments.append({'method_id': method_obj['id'], 'method_name': method_obj['name'], 'amount': amount})
         self.amount_paid_input.clear()
+
+        for btn in self.payment_buttons_map:
+            if btn.isChecked():
+                btn.setAutoExclusive(False)
+                btn.setChecked(False)
+                btn.setAutoExclusive(True)
+                break
+        
         self.update_display()
 
     def update_remove_button_state(self):
@@ -223,15 +240,11 @@ class PaymentDialog(QDialog):
         total_paid = sum(p['amount'] for p in self.payments)
         self.remaining_amount = self.total_amount - total_paid
         
-        # Update payments list
         self.payments_list.clear()
         for p in self.payments:
-            # Display the method name without the shortcut key for cleanliness
-            display_method = p['method'].split(' - ')[-1] if ' - ' in p['method'] else p['method']
-            item = QListWidgetItem(f"{display_method}: R$ {p['amount']:.2f}")
+            item = QListWidgetItem(f"{p['method_name']}: R$ {p['amount']:.2f}")
             self.payments_list.addItem(item)
 
-        # Update labels
         if self.remaining_amount > 0:
             self.remaining_label.setText(f"Restante: R$ {self.remaining_amount:.2f}")
             self.remaining_label.setProperty("status", "warning")
@@ -258,20 +271,19 @@ class PaymentDialog(QDialog):
 
     def on_finalize_clicked(self):
         if self.remaining_amount > 0:
-            return # Should not happen if button is disabled
+            return
 
-        # Prevent multiple clicks
         self.finalize_button.setEnabled(False)
         self.finalize_button.setText("Processando...")
 
         total_paid = sum(p['amount'] for p in self.payments)
         change = total_paid - self.total_amount
 
-        # Clean up payment method names before sending
         final_payments = []
         for p in self.payments:
-            clean_method = p['method'].split(' - ')[-1] if ' - ' in p['method'] else p['method']
-            final_payments.append({'method': clean_method, 'amount': p['amount']})
+            final_payments.append({'method': p['method_id'], 'amount': p['amount']})
+
+        logging.debug(f"Finalizing payment with data: {final_payments}")
 
         self.result_data = {
             'payments': final_payments,
@@ -285,7 +297,7 @@ class PaymentDialog(QDialog):
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
             if self.amount_paid_input.hasFocus():
                 self.on_add_payment_clicked()
-            elif self.finalize_button.isEnabled():
+            elif self.finalize_button.hasFocus() and self.finalize_button.isEnabled():
                 self.on_finalize_clicked()
             return
         super().keyPressEvent(event)

@@ -4,7 +4,6 @@
 
 # Setup
 from data.connection import get_db_connection, DB_FILE
-from data.schema import create_tables
 
 # Repositórios
 from data.admin_repository import *

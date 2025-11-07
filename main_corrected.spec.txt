@@ -1,0 +1,121 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+# =============================================================================
+# NOTA: Este arquivo foi revisado e corrigido para distribuição a clientes.
+# Leia os comentários com [NOTA] para entender as mudanças importantes.
+# =============================================================================
+
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+# [NOTA] Coleta os arquivos de dados do pacote escpos (impressora).
+# Nenhuma mudança aqui, estava correto.
+escpos_datas = collect_data_files('escpos')
+
+# [NOTA] Coleta todos os submódulos dos pacotes da aplicação.
+# Adicionado 'data' para garantir que todos os módulos de acesso a dados sejam incluídos.
+hidden_imports_from_submodules = (
+    collect_submodules('ui') +
+    collect_submodules('hardware') +
+    collect_submodules('integrations') +
+    collect_submodules('data')  # ADICIONADO
+)
+
+a = Analysis(
+    ['main.py'],
+    pathex=['C:/Users/Joaop/PROJETOS GIT/PDV COMPLETO'],
+    binaries=[],
+    datas=escpos_datas + [
+        # --- Arquivos da Integração WhatsApp (Node.js) ---
+        ('wa_bridge.js', '.'),
+        ('package.json', '.'),
+
+        # [NOTA CRÍTICA] Inclusão da 'node_modules'.
+        # Para que a integração com WhatsApp funcione sem que seu cliente precise instalar o Node.js,
+        # esta pasta é necessária.
+        # !! IMPORTANTE !! Antes de gerar o instalador, para reduzir drasticamente o tamanho,
+        # rode o comando "npm prune --production" no seu terminal, na pasta do projeto.
+        ('node_modules', 'node_modules'),
+
+        # --- Arquivos de Configuração e Dados Essenciais ---
+        ('versao.txt', '.'),
+
+        # [NOTA CRÍTICA] Adicionada a pasta de migrações do banco de dados.
+        # Sem isso, o banco de dados não será criado ou atualizado corretamente.
+        ('migrations', 'migrations'),
+
+        # [NOTA] Adicionado o README, é uma boa prática.
+        ('README.md', '.'),
+
+        # [NOTA] Se você tiver imagens, ícones ou arquivos de estilo (.qss) na sua UI,
+        # eles precisam ser adicionados aqui. Exemplo:
+        # ('ui/assets/images', 'ui/assets/images'),
+
+    ],
+    hiddenimports=[
+        # Dependências que o PyInstaller pode não encontrar sozinho.
+        'qrcode',
+        'win32print',
+        'win32api',
+        'pyi_splash',
+        'database',
+        'log_handler',
+        'updater',
+        'utils',
+        'config_manager',
+        'yoyo',
+        # --- Dependências complexas que podem ser perdidas ---
+        'flask',
+        'supabase',
+        'jinja2',
+        'werkzeug',
+        'httpx',
+        'gotrue'
+    ] + hidden_imports_from_submodules, # Adiciona os submódulos coletados
+    hookspath=['./hooks'],
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
+    noarchive=False,
+)
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='PDV.Moderno',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,  # [AVISO] UPX reduz o tamanho, mas pode causar falsos positivos em antivírus. Teste bem.
+    console=False,  # Garante que a aplicação rode em modo janela (sem console).
+    icon='icone.ico'
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='PDV.Moderno'
+)
+
+# [NOTA] A configuração da tela de splash está ótima.
+# Nenhuma mudança necessária aqui.
+splash = Splash(
+    'icone.ico',
+    binaries=a.binaries,
+    datas=a.datas,
+    text='Carregando...',
+    text_color='white',
+    background='#8A2BE2',
+    text_pos=None,
+    text_size=12,
+    minify_script=True
+)

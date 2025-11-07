@@ -138,13 +138,14 @@ def get_sales_report(start_date, end_date):
 
     payment_method_query = '''
         SELECT
-            sp.payment_method,
+            pm.name as payment_method,
             COALESCE(SUM(sp.amount), 0) as total,
             COUNT(DISTINCT sp.sale_id) as count
         FROM sale_payments sp
         JOIN sales s ON sp.sale_id = s.id
+        JOIN payment_methods pm ON sp.payment_method = pm.id
         WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
-        GROUP BY sp.payment_method
+        GROUP BY pm.name
         ORDER BY total DESC
     '''
     payment_methods_rows = conn.execute(payment_method_query, params).fetchall()

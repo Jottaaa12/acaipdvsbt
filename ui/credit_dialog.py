@@ -1,13 +1,7 @@
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QListWidget, 
-    QListWidgetItem, QMessageBox, QDateEdit, QTextEdit, QFrame
-)
-from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt, QDate
-from database import search_customers, add_customer, create_credit_sale, get_customer_balance
-from decimal import Decimal
-from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
-import logging
+from PyQt6.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QPushButton, QListWidget, QDateEdit, QPlainTextEdit, QCalendarWidget, QListWidgetItem
+from PyQt6.QtCore import QDate, Qt
+from database import search_customers, add_customer, get_customer_balance
+from ui.theme import ModernTheme
 
 class CreditDialog(QDialog):
     def __init__(self, total_amount, user_id, parent=None):
@@ -18,6 +12,7 @@ class CreditDialog(QDialog):
         self.total_amount = total_amount
         self.user_id = user_id
         self.selected_customer = None
+        self.credit_data = None
 
         self.setup_ui()
         self.apply_styles()
@@ -25,160 +20,92 @@ class CreditDialog(QDialog):
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
 
-        # Total Amount Display
-        total_label = QLabel(f"Valor Total: R$ {self.total_amount:.2f}")
-        total_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        total_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(total_label)
-
-        # --- Customer Selection Area ---
-        customer_group = QFrame()
-        customer_group.setObjectName("customerGroup")
-        customer_layout = QVBoxLayout(customer_group)
-        
-        # Search Input
-        search_layout = QHBoxLayout()
-        self.customer_search_input = QLineEdit(placeholderText="Buscar cliente por nome, CPF ou telefone...")
+        # Customer Search
+        customer_search_layout = QHBoxLayout()
+        self.customer_search_input = QLineEdit(placeholderText="Buscar cliente por nome ou CPF")
         self.customer_search_input.textChanged.connect(self.on_customer_search_changed)
-        search_layout.addWidget(self.customer_search_input)
+        self.add_customer_button = QPushButton("Novo Cliente")
+        self.add_customer_button.clicked.connect(self.add_new_customer)
+        customer_search_layout.addWidget(self.customer_search_input)
+        customer_search_layout.addWidget(self.add_customer_button)
+        main_layout.addLayout(customer_search_layout)
 
-        self.new_customer_button = QPushButton("Novo Cliente")
-        self.new_customer_button.clicked.connect(self.on_new_customer)
-        search_layout.addWidget(self.new_customer_button)
-        customer_layout.addLayout(search_layout)
-
-        # Customer List
         self.customer_list_widget = QListWidget()
-        self.customer_list_widget.itemSelectionChanged.connect(self.on_customer_selection_changed)
-        customer_layout.addWidget(self.customer_list_widget)
-        main_layout.addWidget(customer_group)
+        self.customer_list_widget.itemClicked.connect(self.on_customer_selected)
+        main_layout.addWidget(self.customer_list_widget)
 
-        # Selected Customer Info
-        self.selected_customer_label = QLabel("Nenhum cliente selecionado")
+        # Selected Customer Display
+        self.selected_customer_label = QLabel("Cliente Selecionado: Nenhum")
         self.selected_customer_label.setObjectName("selectedCustomerLabel")
-        self.selected_customer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(self.selected_customer_label)
 
-        # Due Date
-        main_layout.addWidget(QLabel("Data de Vencimento:"))
-        self.due_date_input = QDateEdit()
-        self.due_date_input.setCalendarPopup(True)
-        self.due_date_input.setDate(QDate.currentDate().addDays(30))
-        self.due_date_input.setDisplayFormat("dd/MM/yyyy")
-        main_layout.addWidget(self.due_date_input)
-
-        # Observations
-        main_layout.addWidget(QLabel("Observações:"))
-        self.observations_input = QTextEdit()
+        # Credit Details
+        main_layout.addWidget(QLabel(f"Valor da Venda: R$ {self.total_amount:.2f}"))
+        
+        main_layout.addWidget(QLabel("Observações (opcional):"))
+        self.observations_input = QPlainTextEdit()
+        self.observations_input.setPlaceholderText("Adicione observações sobre a venda a crédito...")
+        self.observations_input.setMaximumHeight(80)
         main_layout.addWidget(self.observations_input)
 
-        # Action Buttons
-        action_layout = QHBoxLayout()
-        self.confirm_button = QPushButton("Confirmar Fiado")
-        self.confirm_button.setObjectName("confirmButton")
-        self.confirm_button.clicked.connect(self.on_confirm)
-        self.confirm_button.setEnabled(False)
+        main_layout.addWidget(QLabel("Data de Vencimento:"))
+        self.due_date_input = QDateEdit(QDate.currentDate())
+        self.due_date_input.setCalendarPopup(True)
+        self.due_date_input.setMinimumDate(QDate.currentDate()) # Cannot set due date in the past
+        main_layout.addWidget(self.due_date_input)
 
+        # Action Buttons
+        button_layout = QHBoxLayout()
+        self.confirm_button = QPushButton("Confirmar Venda Fiado")
+        self.confirm_button.clicked.connect(self.on_confirm)
         self.cancel_button = QPushButton("Cancelar")
         self.cancel_button.clicked.connect(self.reject)
-
-        action_layout.addWidget(self.cancel_button)
-        action_layout.addWidget(self.confirm_button)
-        main_layout.addLayout(action_layout)
+        button_layout.addWidget(self.confirm_button)
+        button_layout.addWidget(self.cancel_button)
+        main_layout.addLayout(button_layout)
 
     def apply_styles(self):
-        self.setStyleSheet('''
-            QDialog {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-            }
-            QLabel { font-size: 14px; }
-            QFrame#customerGroup { 
-                border: 1px solid #4a627a; 
-                border-radius: 5px; 
-                padding: 5px;
-            }
-            QLineEdit, QTextEdit, QDateEdit, QListWidget {
-                background-color: #34495e;
-                border: 1px solid #4a627a;
-                border-radius: 5px;
-                padding: 8px;
-                color: #ecf0f1;
-            }
-            QListWidget::item { padding: 8px; }
-            QListWidget::item:selected {
-                background-color: #16a085;
-                color: white;
-            }
-            QPushButton {
-                background-color: #34495e;
-                color: #ecf0f1;
-                border: 2px solid #4a627a;
-                padding: 10px;
-                border-radius: 8px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #4a627a; }
-            QPushButton#confirmButton { background-color: #27ae60; border: none; }
-            QPushButton#confirmButton:hover { background-color: #2ecc71; }
-            QPushButton#confirmButton:disabled { background-color: #7f8c8d; }
-            QLabel#selectedCustomerLabel {
-                font-weight: bold;
-                color: #ecf0f1;
-                padding: 8px;
-                background-color: #34495e;
-                border-radius: 4px;
-                min-height: 30px;
-            }
-        ''')
+        self.setStyleSheet(ModernTheme.get_payment_dialog_stylesheet())
+        self.customer_search_input.setObjectName("modern_input")
+        self.add_customer_button.setObjectName("modern_button_secondary")
+        self.confirm_button.setObjectName("modern_button_primary")
+        self.cancel_button.setObjectName("modern_button_outline")
+        self.observations_input.setObjectName("modern_text_edit")
+        self.due_date_input.setObjectName("modern_date_edit")
 
     def on_customer_search_changed(self, text):
         self.customer_list_widget.clear()
         customers = search_customers(text)
         for customer in customers:
-            item_text = f"{customer['name']} (CPF: {customer.get('cpf', 'N/A')})"
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, customer) # Attach customer data to the item
+            item = QListWidgetItem(f"{customer['name']} (CPF: {customer['cpf'] or 'N/A'})")
+            item.setData(Qt.ItemDataRole.UserRole, customer) # Store full customer object
             self.customer_list_widget.addItem(item)
 
-    def on_customer_selection_changed(self):
-        selected_items = self.customer_list_widget.selectedItems()
-        if not selected_items:
-            self.selected_customer = None
-            self.confirm_button.setEnabled(False)
-            self.selected_customer_label.setText("Nenhum cliente selecionado")
-            return
+    def on_customer_selected(self, item):
+        self.selected_customer = item.data(Qt.ItemDataRole.UserRole)
+        self.selected_customer_label.setText(f"Cliente Selecionado: {self.selected_customer['name']}")
 
-        self.selected_customer = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        
-        if self.selected_customer:
-            try:
-                balance = get_customer_balance(self.selected_customer['id'])
-                balance_str = f"{balance:.2f}".replace('.', ',')
-                label_text = f"<b>Cliente:</b> {self.selected_customer['name']}<br><b>Saldo Devedor:</b> R$ {balance_str}"
-                self.selected_customer_label.setText(label_text)
-            except Exception:
-                self.selected_customer_label.setText(f"<b>Cliente:</b> {self.selected_customer['name']}")
-            
-            self.confirm_button.setEnabled(True)
+    def add_new_customer(self):
+        name, ok = self.getText(self, "Novo Cliente", "Nome do Cliente:")
+        if not ok or not name: return
+
+        cpf, ok = self.getText(self, "Novo Cliente", "CPF (opcional):")
+        if not ok: return
+
+        phone, ok = self.getText(self, "Novo Cliente", "Telefone (opcional):")
+        if not ok: return
+
+        address, ok = self.getText(self, "Novo Cliente", "Endereço (opcional):")
+        if not ok: return
+
+        success, message = add_customer(name, cpf, phone, address)
+        if success:
+            QMessageBox.information(self, "Sucesso", message)
+            self.on_customer_search_changed(name) # Refresh list and pre-select new customer
         else:
-            self.selected_customer = None
-            self.confirm_button.setEnabled(False)
-            self.selected_customer_label.setText("Erro ao selecionar cliente")
-
-    def on_new_customer(self):
-        name, ok = self.getText(self, 'Novo Cliente', 'Nome do Cliente:')
-        if ok and name:
-            phone, ok = self.getText(self, 'Novo Cliente', 'Telefone:')
-            if ok:
-                success, result = add_customer(name=name, phone=phone)
-                if success:
-                    QMessageBox.information(self, "Sucesso", "Cliente cadastrado com sucesso!")
-                    self.customer_search_input.setText(name)
-                    self.on_customer_search_changed(name)
-                else:
-                    QMessageBox.warning(self, "Erro", f"Não foi possível cadastrar o cliente: {result}")
+            QMessageBox.critical(self, "Erro", message)
 
     def on_confirm(self):
         if not self.selected_customer:
@@ -204,29 +131,16 @@ class CreditDialog(QDialog):
                                      f"Novo Saldo: R$ {new_total_due:.2f}")
                 return
 
-        due_date = self.due_date_input.date().toString("yyyy-MM-dd")
-        observations = self.observations_input.toPlainText()
+        self.credit_data = {
+            'customer_id': customer_id,
+            'observations': self.observations_input.toPlainText(),
+            'due_date': self.due_date_input.date().toString("yyyy-MM-dd")
+        }
+        
+        self.accept()
 
-        success, result = create_credit_sale(
-            customer_id=customer_id,
-            amount=self.total_amount,
-            user_id=self.user_id,
-            observations=observations,
-            due_date=due_date
-        )
-
-        if success:
-            self.credit_sale_id = result
-            try:
-                notifier = get_whatsapp_sales_notifier()
-                notifier.notify_credit_created(self.credit_sale_id)
-            except Exception as e:
-                logging.error(f"Falha ao enviar notificação de criação de fiado: {e}")
-
-            QMessageBox.information(self, "Sucesso", "Venda a crédito registrada com sucesso!")
-            self.accept()
-        else:
-            QMessageBox.critical(self, "Erro", f"Falha ao registrar a venda a crédito: {result}")
+    def get_credit_data(self):
+        return self.credit_data
 
     def get_selected_customer(self):
         '''Returns the dictionary of the selected customer.'''
