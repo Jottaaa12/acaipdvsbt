@@ -589,6 +589,7 @@ class WhatsAppWorker(QThread):
         # Filas thread-safe
         self._send_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
         self._retry_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        self._message_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
 
         # Componentes
         self.logger = manager.logger
@@ -789,6 +790,9 @@ class WhatsAppWorker(QThread):
                 # Processar mensagens pendentes
                 self._process_pending_messages()
 
+                # Processar mensagens da fila thread-safe
+                self._process_message_queue()
+
                 time.sleep(0.1)
 
             except Exception as e:
@@ -804,6 +808,16 @@ class WhatsAppWorker(QThread):
                 payload = self._send_queue.get_nowait()
                 self._send_message_to_bridge(payload)
                 self._send_queue.task_done()
+        except queue.Empty:
+            pass
+
+    def _process_message_queue(self):
+        """Processa mensagens da fila thread-safe na thread principal."""
+        try:
+            while not self._message_queue.empty() and self._running.is_set():
+                msg = self._message_queue.get_nowait()
+                self._handle_bridge_message(msg)
+                self._message_queue.task_done()
         except queue.Empty:
             pass
 
@@ -883,7 +897,8 @@ class WhatsAppWorker(QThread):
 
                 try:
                     msg = json.loads(line)
-                    self._handle_bridge_message(msg)
+                    # Adicionar mensagem à fila para processamento thread-safe
+                    self._message_queue.put(msg)
                 except json.JSONDecodeError as e:
                     self.logger.log_error(f"Linha inválida do bridge: {line}",
                                         error_type='bridge_json_error',
@@ -1036,6 +1051,7 @@ class WhatsAppWorker(QThread):
             self._cleanup_process()
             self._send_queue = queue.Queue()  # Limpar filas
             self._retry_queue = queue.Queue()
+            self._message_queue = queue.Queue()
         except Exception as e:
             self.logger.log_error(f"Erro no cleanup: {e}", error_type='worker_cleanup_error')
 
@@ -1098,4 +1114,3 @@ class WhatsAppWorker(QThread):
     def _generate_message_id(self) -> str:
         """Gera ID único para mensagem."""
         return hashlib.md5(f"{datetime.now().isoformat()}{threading.current_thread().ident}".encode()).hexdigest()
-

@@ -135,24 +135,44 @@ function safeLog(obj) {
     if (msg.action === 'send') {
       const phone = (msg.phone || '').replace(/[^\d]/g, '');
       const text = msg.message || '';
+      const message_id = msg.message_id || null;
+
       if (!phone || !text) return;
-      
+
+      let response = {
+        type: 'message_result',
+        message_id: message_id,
+        success: false,
+        error: null,
+        phone: phone,
+        phone_validation_attempted: false,
+        phone_exists: false
+      };
+
       try {
         const jid = phone.endsWith('@s.whatsapp.net') ? phone : phone + '@s.whatsapp.net';
-        
+
         const [result] = await sock.onWhatsApp(jid);
         if (!result?.exists) {
-            safeLog({ type: 'error', data: `O número ${phone} não existe no WhatsApp.` });
+            response.phone_validation_attempted = true;
+            response.phone_exists = false;
+            response.error = `O número ${phone} não existe no WhatsApp.`;
+            safeLog(response);
             return;
         }
+
+        response.phone_validation_attempted = true;
+        response.phone_exists = true;
 
         // Use the JID returned by onWhatsApp, as it might be corrected by the server
         const correctJid = result.jid;
         await sock.sendMessage(correctJid, { text });
-        safeLog({ type: 'log', data: 'Mensagem enviada com sucesso.' });
+        response.success = true;
+        safeLog(response);
 
       } catch (e) {
-        safeLog({ type: 'error', data: 'Falha ao enviar mensagem: ' + (e?.message || e) });
+        response.error = 'Falha ao enviar mensagem: ' + (e?.message || e.toString());
+        safeLog(response);
       }
       return;
     }

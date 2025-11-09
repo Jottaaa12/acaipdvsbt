@@ -302,51 +302,52 @@ class SyncManager(QObject):
 
                     # Adiciona o id_web e sync_status ao payload
                     payload['id_web'] = str(web_id)
-                    payload['sync_status'] = 'synced' 
-
-                if local_record:
-                    # --- UPDATE LOCAL ---
-                    local_id = local_record[0]
-
-                    # Garantir que o sync_status esteja 'synced' para não causar loop
                     payload['sync_status'] = 'synced'
 
-                    # Remover chaves que não devem ser nulas se o valor for None
-                    # (O _build_local_payload já fez a maior parte disso)
-                    final_payload = {k: v for k, v in payload.items() if v is not None}
+                    if local_record:
+                        # --- UPDATE LOCAL ---
+                        local_id = local_record[0]
 
-                    set_clause = ", ".join([f"{key} = ?" for key in final_payload.keys()])
-                    values = list(final_payload.values()) + [local_id]
+                        # Garantir que o sync_status esteja 'synced' para não causar loop
+                        payload['sync_status'] = 'synced'
 
-                    if not set_clause:
-                        logging.warning(f"SyncManager: Pulando UPDATE local de {table_name} (id_web: {web_id}) pois não há campos para atualizar.")
-                        continue
+                        # Remover chaves que não devem ser nulas se o valor for None
+                        # (O _build_local_payload já fez a maior parte disso)
+                        final_payload = {k: v for k, v in payload.items() if v is not None}
 
-                    cursor.execute(f"UPDATE {table_name} SET {set_clause} WHERE id = ?", values)
+                        set_clause = ", ".join([f"{key} = ?" for key in final_payload.keys()])
+                        values = list(final_payload.values()) + [local_id]
 
-                else:
-                    # --- INSERT LOCAL ---
-                    # Agora habilitado para TODAS as tabelas, pois
-                    # _build_local_payload traduz as FKs.
+                        if not set_clause:
+                            logging.warning(f"SyncManager: Pulando UPDATE local de {table_name} (id_web: {web_id}) pois não há campos para atualizar.")
+                            continue
 
-                    # Garantir que o sync_status esteja 'synced'
-                    payload['sync_status'] = 'synced'
-                    payload['id_web'] = str(web_id) # id_web é obrigatório no insert
+                        cursor.execute(f"UPDATE {table_name} SET {set_clause} WHERE id = ?", values)
 
-                    # Remover chaves nulas que não têm valor padrão
-                    final_payload = {k: v for k, v in payload.items() if v is not None}
+                    else:
+                        # --- INSERT LOCAL ---
+                        # Agora habilitado para TODAS as tabelas, pois
+                        # _build_local_payload traduz as FKs.
 
-                    columns = ", ".join(final_payload.keys())
-                    placeholders = ", ".join(["?" for _ in final_payload.keys()])
-                    values = list(final_payload.values())
+                        # Garantir que o sync_status esteja 'synced'
+                        payload['sync_status'] = 'synced'
+                        payload['id_web'] = str(web_id) # id_web é obrigatório no insert
 
-                    if not columns:
-                        logging.warning(f"SyncManager: Pulando INSERT local de {table_name} (id_web: {web_id}) pois não há campos para inserir.")
-                        continue
+                        # Remover chaves nulas que não têm valor padrão
+                        final_payload = {k: v for k, v in payload.items() if v is not None}
 
-                    cursor.execute(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})", values)
+                        columns = ", ".join(final_payload.keys())
+                        placeholders = ", ".join(["?" for _ in final_payload.keys()])
+                        values = list(final_payload.values())
 
-                conn.commit()
+                        if not columns:
+                            logging.warning(f"SyncManager: Pulando INSERT local de {table_name} (id_web: {web_id}) pois não há campos para inserir.")
+                            continue
+
+                        cursor.execute(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})", values)
+
+                    # Commit para cada registro processado
+                    conn.commit()
 
             except Exception as e:
                 logging.error(f"SyncManager: Erro ao processar _sync_web_to_local para tabela {table_name}: {e}", exc_info=True)

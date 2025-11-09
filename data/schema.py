@@ -304,6 +304,49 @@ def create_tables():
     finally:
         conn.close()
 
+def apply_automatic_fixes():
+    """
+    Procura e remove ativamente problemas conhecidos do schema que
+    não podem ser resolvidos por migrações SQL simples, como triggers órfãos.
+    """
+    logging.info("Verificando correções automáticas do banco de dados...")
+
+    problematic_triggers = []
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Verifica a existência de triggers que referenciam a tabela temporária
+        cursor.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")
+        all_triggers = cursor.fetchall()
+
+        for trigger in all_triggers:
+            name = trigger['name']
+            sql_definition = trigger['sql']
+
+            # Procura a string exata do erro
+            if sql_definition and 'credit_sales_temp_migration' in sql_definition:
+                problematic_triggers.append(name)
+                logging.warning(f"Encontrado trigger problemático '{name}' referenciando 'credit_sales_temp_migration'.")
+
+        if not problematic_triggers:
+            logging.info("Nenhum trigger problemático encontrado.")
+            return
+
+        # Remove os triggers encontrados
+        for trigger_name in problematic_triggers:
+            logging.info(f"Removendo trigger órfão: {trigger_name}")
+            cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+
+        conn.commit()
+        logging.info("Correções automáticas do banco de dados aplicadas com sucesso.")
+
+    except sqlite3.Error as e:
+        logging.error(f"Erro de banco de dados ao aplicar correção automática: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 def hash_password(password):
     """Gera hash da senha usando SHA-256."""
     return hashlib.sha256(password.encode()).hexdigest()

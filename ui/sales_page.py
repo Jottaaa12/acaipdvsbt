@@ -514,6 +514,14 @@ class SalesPage(QWidget):
                     f"Cliente: {customer_name}, Valor: {total_amount:.2f}"
                 )
 
+                # Enviar notificação automática de fiado criado via WhatsApp
+                try:
+                    from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
+                    notifier = get_whatsapp_sales_notifier()
+                    notifier.notify_credit_created(credit_sale_id)
+                except Exception as e:
+                    logging.warning(f"Erro ao enviar notificação de fiado criado via WhatsApp: {e}")
+
                 # 2. Register the main sale for stock control, passing an empty list of payments.
                 sale_success, sale_data = db.register_sale_with_user(
                     total_amount, [], self.current_sale_items, Decimal('0.00'),

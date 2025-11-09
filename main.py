@@ -9,6 +9,7 @@ import yoyo
 
 from data.connection import DB_FILE
 from data.migration_fixes import check_and_fix_sync_columns
+from data.schema import apply_automatic_fixes
 
 # Configuracao basica de logging para capturar tudo desde o inicio
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - [%(levelname)s] - %(message)s')
@@ -31,6 +32,17 @@ try:
     PYI_SPLASH_AVAILABLE = True
 except ImportError:
     PYI_SPLASH_AVAILABLE = False
+
+def resource_path(relative_path):
+    """ Obtém o caminho absoluto para o recurso, funciona para dev e PyInstaller """
+    try:
+        # PyInstaller cria uma pasta temporária _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Não estamos rodando "empacotados", use o caminho normal
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 class CustomSplashScreen:
     def __init__(self):
@@ -132,7 +144,8 @@ class PDVApplication:
             backend = yoyo.get_backend(f'sqlite:///{db_path}')
 
             # 2. Lê os scripts da nossa pasta 'migrations'
-            migrations = yoyo.read_migrations('./migrations')
+            migrations_path = resource_path('migrations')
+            migrations = yoyo.read_migrations(migrations_path)
 
             # 3. Descobre quais migrações precisam ser aplicadas
             to_apply = backend.to_apply(migrations)
@@ -180,6 +193,13 @@ class PDVApplication:
                 check_and_fix_sync_columns()
             except Exception as e:
                 logging.error(f"Erro durante verificação de correção das colunas de sincronização: {e}")
+                # Não interrompe a inicialização por causa deste erro
+
+            # Aplica correções automáticas de Python após as migrações
+            try:
+                apply_automatic_fixes()
+            except Exception as e:
+                logging.error(f"Erro durante aplicação de correções automáticas: {e}")
                 # Não interrompe a inicialização por causa deste erro
 
             logging.info("Banco de dados inicializado com sucesso.")

@@ -200,9 +200,7 @@ class CommandHandler:
             if success:
                 from .whatsapp_sales_notifications import get_whatsapp_sales_notifier
                 notifier = get_whatsapp_sales_notifier()
-                paid_sale_data = db.get_credit_sale_by_id(credit_id)
-                if paid_sale_data:
-                    notifier.notify_credit_paid(paid_sale_data)
+                notifier.notify_credit_paid(credit_id)
                 
                 return f"✅ Fiado de `R$ {credit_sale['amount']:.2f}` para `{credit_sale['customer_name']}` (ID {credit_id}) foi marcado como pago."
             else:
@@ -242,9 +240,7 @@ class CommandHandler:
             if success:
                 from .whatsapp_sales_notifications import get_whatsapp_sales_notifier
                 notifier = get_whatsapp_sales_notifier()
-                new_sale_data = db.get_credit_sale_by_id(credit_id)
-                if new_sale_data:
-                    notifier.notify_credit_created(new_sale_data)
+                notifier.notify_credit_created(credit_id)
                 return f"✅ Novo fiado criado para `{customer_name}` no valor de `R$ {amount:.2f}` (ID: {credit_id})."
             else:
                 return f"❌ Erro ao criar fiado: {credit_id}"
