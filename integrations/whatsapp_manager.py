@@ -557,10 +557,10 @@ class WhatsAppManager(QObject):
             # Emitir log de auditoria
             if success:
                 self.logger.log_audit("message_sent", "", "", True,
-                                    message_id=message_id, success=True)
+                                    message_id=message_id)
             else:
                 self.logger.log_audit("message_failed", "", "", False,
-                                    message_id=message_id, error=error, success=False)
+                                    message_id=message_id, error=error)
 
         except Exception as e:
             self.logger.log_error(f"Erro ao processar resultado da mensagem: {e}",

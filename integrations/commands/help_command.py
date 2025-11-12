@@ -1,0 +1,45 @@
+# integrations/commands/help_command.py
+from .base_command import BaseCommand
+
+class HelpCommand(BaseCommand):
+    """
+    Comando para /ajuda. Retorna a mensagem de ajuda com os comandos disponíveis.
+    """
+    def execute(self) -> str:
+        return (
+            "🤖 *Assistente Virtual PDV* 🤖\n\n"
+            "Aqui estão os comandos que você pode usar:\n\n"
+            "💳 *FIADOS (CONTAS A RECEBER)*\n"
+            "  `*/fiados`* - Lista os fiados pendentes (com ID).\n"
+            "  `*/fiado pago <ID do fiado>`* - Marca um fiado como pago.\n"
+            "  `*/fiado detalhes <nome do cliente>`* - Mostra detalhes dos fiados de um cliente.\n"
+            "  `*/fiado criar \"Nome Cliente\" <valor>`* - Cria um novo fiado.\n"
+            "  `*/fiado editar <ID> <novo valor>`* - Edita o valor de um fiado.\n"
+            "  `*/fiado cancelar <ID>`* - Cancela um fiado.\n\n"
+            "📈 *DASHBOARD*\n"
+            "  `*/dashboard`* - Resumo completo do dia.\n\n"
+            "📊 *RELATÓRIOS*\n"
+            "  `*/vendas <período>`* - Vendas do período (hoje, ontem, 7dias, etc.).\n"
+            "  `*/produtos_vendidos <período>`* - Ranking de produtos mais vendidos.\n\n"
+            "📦 *CAIXA*\n"
+            "  `*/caixa status`* - Status detalhado do caixa atual.\n"
+            "  `*/caixa fechar`* - Relatório de pré-fechamento.\n"
+            "  `*/caixa sangria <valor> <motivo>`* - Registrar sangria.\n"
+            "  `*/caixa suprimento <valor> <motivo>`* - Registrar suprimento.\n\n"
+            "📝 *PRODUTOS E ESTOQUE*\n"
+            "  `*/produto consultar <nome/cód>`* - Detalhes de um produto.\n"
+            "  `*/produto alterar_preco <cód> <preço>`* - Altera o preço.\n"
+            "  `*/estoque baixo`* - Lista produtos com estoque baixo.\n"
+            "  `*/estoque ajustar <cód> <qtd>`* - Ajusta o estoque.\n\n"
+            "⚙️ *ADMINISTRAÇÃO*\n"
+            "  `*/gerente listar`* - Lista os gerentes.\n"
+            "  `*/gerente adicionar <número>`* - Adiciona um gerente.\n"
+            "  `*/gerente remover <número>`* - Remove um gerente.\n"
+            "  `*/notificacoes <on/off>`* - Ativa/desativa notificações.\n\n"
+            "🛠️ *SISTEMA*\n"
+            "  `*/status`* - Saúde da integração WhatsApp.\n"
+            "  `*/logs <nível> [linhas]`* - Exibe logs do sistema.\n"
+            "  `*/backup`* - Inicia o backup do banco de dados.\n"
+            "  `*/sistema limpar_sessao`* - Reinicia a conexão com o WhatsApp.\n\n"
+            "ℹ️ Digite um comando para começar!"
+        )

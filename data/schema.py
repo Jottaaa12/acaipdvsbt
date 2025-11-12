@@ -302,7 +302,7 @@ def create_tables():
         logging.error(f"Erro durante a criação de tabelas: {e}", exc_info=True)
         raise # Re-levanta a exceção para que a main.py possa capturá-la
     finally:
-        conn.close()
+        pass
 
 def apply_automatic_fixes():
     """
@@ -345,7 +345,7 @@ def apply_automatic_fixes():
         logging.error(f"Erro de banco de dados ao aplicar correção automática: {e}")
         conn.rollback()
     finally:
-        conn.close()
+        pass
 
 def hash_password(password):
     """Gera hash da senha usando SHA-256."""

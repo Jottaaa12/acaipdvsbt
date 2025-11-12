@@ -262,7 +262,7 @@ class WhatsAppWidget(QWidget):
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 self._update_whatsapp_ui_state('pending', "Desconectando...")
-                manager.disconnect()
+                manager.disconnect(cleanup_session=True)
                 self._update_whatsapp_ui_state('disconnected')
                 QMessageBox.information(self, "WhatsApp", "Desconectado com sucesso.")
         else:
