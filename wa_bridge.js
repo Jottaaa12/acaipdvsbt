@@ -35,7 +35,7 @@ function safeLog(obj) {
       auth: state,
       printQRInTerminal: false,
       browser: ['PDV-Desktop', 'Chrome', '1.0.0'],
-      logger: pino({ level: 'trace' }),
+      logger: pino({ level: 'silent' }),
       markOnlineOnConnect: false,
       syncFullHistory: false,
     });
@@ -80,24 +80,21 @@ function safeLog(obj) {
                 return;
             }
 
-            const chatJid = msg.key.remoteJid;
-            const isGroup = chatJid.endsWith('@g.us');
+            const fromJid = msg.key.remoteJid; // Onde responder (grupo ou chat privado)
+            const isGroup = fromJid.endsWith('@g.us');
             
-            let senderJid;
+            let realAuthorJid;
             if (isGroup) {
-                // Em grupo, o remetente é sempre o 'participant'
-                senderJid = msg.key.participant;
-            } else if (msg.key.senderPn) {
-                // Em chat privado, se 'senderPn' existir, ele contém o número real (caso de LIDs)
-                senderJid = msg.key.senderPn;
+                // Em um grupo, o autor é sempre o participante
+                realAuthorJid = msg.key.participant;
             } else {
-                // Fallback para o JID do chat (conversas privadas normais)
-                senderJid = chatJid;
+                // Em um chat privado, o autor é o próprio chat.
+                // Usamos `senderPn` se existir para resolver LIDs para um número real.
+                realAuthorJid = msg.key.senderPn || fromJid;
             }
 
-            // Se não for possível determinar o remetente, ignora.
-            if (!senderJid) {
-                return;
+            if (!realAuthorJid) {
+                return; // Não processa se não conseguir identificar o autor
             }
 
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
@@ -106,7 +103,9 @@ function safeLog(obj) {
                 safeLog({
                     type: 'message',
                     data: {
-                        sender: senderJid.split('@')[0],
+                        from: fromJid,          // O JID da conversa
+                        author: realAuthorJid,  // O JID real do autor
+                        isGroup: isGroup,       // Flag para indicar se é um grupo
                         text: text
                     }
                 });
@@ -133,30 +132,39 @@ function safeLog(obj) {
     }
 
     if (msg.action === 'send') {
-      const phone = (msg.phone || '').replace(/[^\d]/g, '');
+      const recipientId = msg.phone || '';
       const text = msg.message || '';
       const message_id = msg.message_id || null;
 
-      if (!phone || !text) return;
+      if (!recipientId || !text) return;
 
       let response = {
         type: 'message_result',
         message_id: message_id,
         success: false,
         error: null,
-        phone: phone,
+        phone: recipientId,
         phone_validation_attempted: false,
         phone_exists: false
       };
 
       try {
-        const jid = phone.endsWith('@s.whatsapp.net') ? phone : phone + '@s.whatsapp.net';
+        // Se for um ID de grupo, envie diretamente sem verificar.
+        if (recipientId.endsWith('@g.us')) {
+          await sock.sendMessage(recipientId, { text });
+          response.success = true;
+          safeLog(response);
+          return;
+        }
+
+        // Se não for um grupo, é um usuário. Prossiga com a validação.
+        const jid = recipientId.endsWith('@s.whatsapp.net') ? recipientId : recipientId.replace(/[^\d]/g, '') + '@s.whatsapp.net';
 
         const [result] = await sock.onWhatsApp(jid);
         if (!result?.exists) {
             response.phone_validation_attempted = true;
             response.phone_exists = false;
-            response.error = `O número ${phone} não existe no WhatsApp.`;
+            response.error = `O número ${recipientId} não existe no WhatsApp.`;
             safeLog(response);
             return;
         }
@@ -164,7 +172,7 @@ function safeLog(obj) {
         response.phone_validation_attempted = true;
         response.phone_exists = true;
 
-        // Use the JID returned by onWhatsApp, as it might be corrected by the server
+        // Use o JID retornado pela verificação, pois ele pode ser corrigido pelo servidor
         const correctJid = result.jid;
         await sock.sendMessage(correctJid, { text });
         response.success = true;

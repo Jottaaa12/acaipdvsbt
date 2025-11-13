@@ -75,6 +75,9 @@ class WhatsAppManager(QObject):
         self._message_history: List[Dict[str, Any]] = []
         self._history_lock = threading.RLock()  # Lock específico para histórico
 
+        # Referência da UI
+        self.main_window = None
+
         # Carregar estado persistente
         self._load_persistent_cache()
         self._load_message_history()
@@ -85,6 +88,16 @@ class WhatsAppManager(QObject):
 
         # Instanciar o handler de comandos (agora sem dependências)
         self.command_handler = CommandHandler()
+
+    def set_main_window(self, window):
+        """Armazena a referência da janela principal para enviar sinais para a UI."""
+        self.main_window = window
+
+    def show_ui_notification(self, title: str, message: str):
+        """Envia um sinal para a UI thread para exibir uma notificação na tela."""
+        if self.main_window and hasattr(self.main_window, 'show_notification_signal'):
+            self.main_window.show_notification_signal.emit(title, message)
+
 
     def connect(self, force_reconnect: bool = False) -> bool:
         """
@@ -944,19 +957,41 @@ class WhatsAppWorker(QThread):
                 self._handle_message_result(msg)
             elif msg_type == "message":
                 message_data = msg.get("data", {})
-                if message_data:
-                    # A função process_command retorna uma LISTA de tuplas (response, recipient)
-                    responses = self.manager.command_handler.process_command(message_data, self.manager)
+                if message_data and message_data.get('text'):
+                    from_id = message_data.get('from')
+                    author_id = message_data.get('author')
+                    is_group = message_data.get('isGroup', False)
+
+                    # O ID do usuário para verificação de permissões é sempre o autor real.
+                    user_id_for_perms = author_id
+
+                    # O ID para onde a resposta deve ser enviada depende se é um grupo.
+                    # Se for grupo, responde para o grupo. Se for privado, responde para o autor real.
+                    chat_id_for_reply = from_id if is_group else author_id
+
+                    # Se não for possível determinar os IDs, ignora.
+                    if not user_id_for_perms or not chat_id_for_reply:
+                        self.logger.log_error(
+                            "Não foi possível determinar user_id ou chat_id da mensagem",
+                            error_type='message_parsing_error',
+                            message_data=message_data
+                        )
+                        return
+
+                    command_text = message_data.get('text', '')
+
+                    # A função process_command recebe o ID do autor e o ID de resposta
+                    responses = self.manager.command_handler.process_command(
+                        user_id=user_id_for_perms,
+                        chat_id=chat_id_for_reply,
+                        command_text=command_text,
+                        manager=self.manager
+                    )
+                    
                     if responses:
                         for response, recipient in responses:
                             if response and recipient:
                                 self.manager.send_message(recipient, response, message_type='command_response')
-            elif msg_type == "incoming_command": # Manter compatibilidade se houver outro uso
-                responses = self.manager.command_handler.process_command(msg.get("data", {}), self.manager)
-                if responses:
-                    for response, recipient in responses:
-                        if response and recipient:
-                            self.manager.send_message(recipient, response, message_type='command_response')
 
         except Exception as e:
             self.logger.log_error(f"Erro ao processar mensagem do bridge: {e}",

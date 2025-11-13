@@ -1,7 +1,10 @@
 # integrations/commands/admin_commands.py
 from .base_command import BaseCommand, ManagerCommand
-from typing import List
+from typing import List, TYPE_CHECKING
 from integrations.whatsapp_config import get_whatsapp_config
+
+if TYPE_CHECKING:
+    from integrations.whatsapp_manager import WhatsAppManager
 
 class NotificationsCommand(BaseCommand):
     """Ativa ou desativa as notificações."""
@@ -34,8 +37,8 @@ class BackupCommand(BaseCommand):
 
 class GerenteCommand(ManagerCommand):
     """Lida com subcomandos de gerenciamento de gerentes."""
-    def __init__(self, args: List[str], manager: 'WhatsAppManager'):
-        super().__init__(args, manager)
+    def __init__(self, args: List[str], user_id: str, chat_id: str, manager: 'WhatsAppManager'):
+        super().__init__(args, user_id, chat_id, manager)
         self.config = get_whatsapp_config()
 
     def execute(self) -> str:

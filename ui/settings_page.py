@@ -17,6 +17,7 @@ from ui.settings.establishment_widget import EstablishmentWidget
 from ui.settings.hardware_widget import HardwareWidget
 from ui.settings.supabase_widget import SupabaseWidget
 from ui.settings.whatsapp_widget import WhatsAppWidget
+from ui.scheduled_notifications_management_dialog import ScheduledNotificationsManagementDialog
 from data.sync_manager import SyncManager
 
 
@@ -133,6 +134,7 @@ class SettingsPage(QWidget):
                 ("users", "Usuários", IconTheme.USERS, self.open_user_management),
                 ("audit_log", "Log de Auditoria", IconTheme.REPORTS, self.open_audit_log),
                 ("whatsapp", "Configuração WhatsApp", IconTheme.SALES, self.open_whatsapp_settings),
+                ("scheduled_notifications", "Avisos Agendados", IconTheme.SALES, self.open_scheduled_notifications_management),
                 ("supabase", "Sincronização", IconTheme.SYNC, self.open_supabase_settings),
                 ("backup", "Backup do Sistema", IconTheme.SAVE, self.open_backup_dialog),
                 ("data_management", "Gerenciamento de Dados", IconTheme.DATABASE, self.open_data_management),
@@ -149,6 +151,11 @@ class SettingsPage(QWidget):
             if col > 3: # 4 botões por linha
                 col = 0
                 row += 1
+    
+    def open_scheduled_notifications_management(self):
+        """Abre o diálogo para gerenciar avisos agendados."""
+        widget = ScheduledNotificationsManagementDialog()
+        self._create_modal_dialog("Gerenciar Avisos Agendados", widget)
     
     def open_shortcut_management(self):
         """Abre o diálogo de gerenciamento de atalhos e garante a atualização da tela de vendas."""

@@ -1,6 +1,6 @@
 # integrations/whatsapp_command_handler.py
 import logging
-from typing import List, Dict, Any, Type
+from typing import List, Dict, Any, Type, Tuple
 
 # Importe o 'manager' type-hinting
 from typing import TYPE_CHECKING
@@ -17,6 +17,8 @@ from .commands.estoque_commands import EstoqueCommand
 from .commands.relatorio_commands import SalesReportCommand, DashboardCommand, ProdutosVendidosCommand
 from .commands.admin_commands import NotificationsCommand, BackupCommand, GerenteCommand
 from .commands.sistema_commands import StatusCommand, LogsCommand, SistemaCommand
+from .commands.aviso_command import AvisoCommand
+from .commands.aviso_agendado_command import AvisoAgendadoCommand
 from .whatsapp_config import get_whatsapp_config
 import database as db
 
@@ -44,6 +46,8 @@ class CommandHandler:
             '/sistema': SistemaCommand,
             '/fiado': FiadoCommand,
             '/fiados': FiadoCommand, # Alias
+            '/aviso': AvisoCommand,
+            '/aviso_agendado': AvisoAgendadoCommand,
         }
 
     def update_authorized_managers(self):
@@ -64,24 +68,23 @@ class CommandHandler:
         logging.info(f"Gerentes autorizados (normalizados) no WhatsApp: {self.authorized_managers}")
 
 
-    def process_command(self, command_data: dict, manager: 'WhatsAppManager') -> List[tuple[str, str]]:
+    def process_command(self, user_id: str, chat_id: str, command_text: str, manager: 'WhatsAppManager') -> List[Tuple[str, str]]:
         """
         Processa um comando, registra a auditoria e retorna uma LISTA de tuplas de resposta.
         Recebe a instância do manager para acessar métodos de status e logging.
         Retorna: [(response_text, recipient_phone)] ou []
         """
-        sender_phone_raw = command_data.get('sender')
-        command_text = command_data.get('text', '').strip()
+        command_text = command_text.strip()
 
-        # Normaliza o número do remetente antes de verificar
-        validation = self.config.validate_phone(sender_phone_raw)
+        # Normaliza o número do remetente (user_id) para verificação de permissão
+        validation = self.config.validate_phone(user_id)
         if not validation['valid']:
-            logging.warning(f"Número de remetente com formato inválido foi ignorado: {sender_phone_raw}")
+            logging.warning(f"Número de remetente com formato inválido foi ignorado: {user_id}")
             return []
         
         sender_phone = validation['normalized']
 
-        # A verificação agora usa a lista normalizada em cache.
+        # A verificação agora usa a lista normalizada em cache, baseada no autor da mensagem.
         if not sender_phone or sender_phone not in self.authorized_managers:
             logging.warning(f"Comando de número não autorizado foi ignorado: {sender_phone} (Lista de autorizados: {self.authorized_managers})")
             # Log de tentativa de comando não autorizado
@@ -97,13 +100,13 @@ class CommandHandler:
 
         if CommandClass:
             try:
-                # Instancia o comando
+                # Instancia o comando, agora passando user_id e chat_id
                 if issubclass(CommandClass, ManagerCommand):
                     # Se for um ManagerCommand, injeta a dependência do manager
-                    command_instance = CommandClass(args, manager=manager)
+                    command_instance = CommandClass(args, user_id=user_id, chat_id=chat_id, manager=manager)
                 else:
-                    # Senão, é um BaseCommand e só precisa dos args
-                    command_instance = CommandClass(args)
+                    # Senão, é um BaseCommand e só precisa dos args, user_id e chat_id
+                    command_instance = CommandClass(args, user_id=user_id, chat_id=chat_id)
 
                 # Executa o comando
                 response = command_instance.execute()
@@ -120,6 +123,7 @@ class CommandHandler:
             manager.logger.log_command(sender=sender_phone, command=command_text, success=False, response_preview="Comando não reconhecido")
 
         if response:
-            return [(response, sender_phone)]
+            # A resposta é enviada para o chat_id (o grupo ou a conversa privada)
+            return [(response, chat_id)]
         
         return []

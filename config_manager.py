@@ -59,7 +59,8 @@ class ConfigManager:
             "supabase": {
                 "url": "https://clncykjzukfjxvqjbcgx.supabase.co",
                 "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbmN5a2p6dWtmanh2cWpiY2d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NzUyNzcsImV4cCI6MjA3NzE1MTI3N30.UoHNsGHlmV0HQ1HHMyWRrqQiEQyups0CMefCeZ5zDKU"
-            }
+            },
+            "scheduled_notifications": []
         }
 
     def load_config(self):
@@ -100,3 +101,29 @@ class ConfigManager:
         """Atualiza uma seção da configuração e salva o arquivo."""
         self._config[section_name] = section_data
         self.save_config(self._config)
+
+    def get_scheduled_notifications(self):
+        """Retorna a lista de notificações agendadas."""
+        return self._config.get("scheduled_notifications", [])
+
+    def add_scheduled_notification(self, notification_data):
+        """Adiciona uma nova notificação agendada e salva a configuração."""
+        notifications = self.get_scheduled_notifications()
+        notifications.append(notification_data)
+        self.update_section("scheduled_notifications", notifications)
+
+    def update_scheduled_notification(self, notification_id, notification_data):
+        """Atualiza uma notificação agendada existente pelo ID e salva a configuração."""
+        notifications = self.get_scheduled_notifications()
+        for i, notif in enumerate(notifications):
+            if notif.get("id") == notification_id:
+                notifications[i] = notification_data
+                break
+        self.update_section("scheduled_notifications", notifications)
+
+    def delete_scheduled_notification(self, notification_id):
+        """Remove uma notificação agendada pelo ID e salva a configuração."""
+        notifications = self.get_scheduled_notifications()
+        notifications = [notif for notif in notifications if notif.get("id") != notification_id]
+        self.update_section("scheduled_notifications", notifications)
+

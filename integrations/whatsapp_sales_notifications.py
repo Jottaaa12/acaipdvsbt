@@ -369,19 +369,29 @@ class WhatsAppSalesNotifier:
             return None
 
     def _get_notification_recipients(self) -> List[str]:
-        """Retorna lista de destinatários para notificações."""
+        """Retorna lista de destinatários para notificações, incluindo o grupo configurado."""
+        # Pega destinatários individuais das configurações de notificação
         recipients = self.notification_settings.get('notification_recipients', [])
 
-        # Incluir configuração global se existir
+        # Incluir configuração global se existir (número do admin/gerente)
         try:
             import database as db
             global_number = db.load_setting('whatsapp_notification_number', '')
             if global_number and global_number not in recipients:
                 recipients.append(global_number)
         except Exception as e:
-            logging.error(f"Erro ao obter destinatários globais: {e}", exc_info=True)
+            logging.error(f"Erro ao obter destinatário global do banco de dados: {e}", exc_info=True)
 
-        return recipients
+        # Incluir o ID do grupo de notificação, se configurado
+        try:
+            group_id = self.config.get('advanced.GROUP_NOTIFICATION_ID')
+            if group_id and group_id.strip() and group_id not in recipients:
+                recipients.append(group_id.strip())
+        except Exception as e:
+            logging.error(f"Erro ao obter ID do grupo de notificação da configuração: {e}", exc_info=True)
+
+        # Remove duplicados para garantir que cada ID seja único
+        return list(dict.fromkeys(recipients))
 
 
 

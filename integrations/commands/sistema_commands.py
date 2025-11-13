@@ -4,6 +4,7 @@ from typing import List, Any, Dict
 import os
 import json
 from datetime import datetime
+from integrations.whatsapp_config import get_whatsapp_config
 
 class StatusCommand(ManagerCommand):
     """Lida com o comando /status"""
@@ -89,7 +90,7 @@ class SistemaCommand(ManagerCommand):
     """Lida com o comando /sistema"""
     def execute(self) -> str:
         if not self.args:
-            return "Uso: /sistema [limpar_sessao]"
+            return "Uso: /sistema [limpar_sessao | set_group]"
 
         subcommand = self.args[0].lower()
         if subcommand == 'limpar_sessao':
@@ -99,5 +100,22 @@ class SistemaCommand(ManagerCommand):
             except Exception as e:
                 self.logging.error(f"Erro ao limpar sessão via comando: {e}", exc_info=True)
                 return "❌ Ocorreu um erro ao tentar limpar a sessão."
+        
+        elif subcommand == 'set_group':
+            try:
+                # self.chat_id está disponível graças à mudança na classe base
+                group_id = self.chat_id
+                if not group_id or not group_id.endswith('@g.us'):
+                    return "❌ Este comando só pode ser usado dentro de um grupo do WhatsApp."
+
+                wa_config = get_whatsapp_config()
+                wa_config.set('advanced.GROUP_NOTIFICATION_ID', group_id)
+                wa_config.save_config()
+                
+                return f"✅ Sucesso! Este grupo foi definido para receber as notificações do sistema."
+            except Exception as e:
+                self.logging.error(f"Erro ao definir grupo de notificação via comando: {e}", exc_info=True)
+                return "❌ Ocorreu um erro ao tentar definir este grupo para notificações."
+        
         else:
             return f"Subcomando '/sistema {subcommand}' não reconhecido."

@@ -14,11 +14,13 @@ if TYPE_CHECKING:
 class BaseCommand(ABC):
     """
     Interface base para um comando que NÃO precisa de acesso ao WhatsAppManager.
-    Recebe apenas os argumentos do usuário.
+    Recebe os argumentos do usuário, o ID do usuário e o ID do chat.
     """
-    def __init__(self, args: List[str]):
+    def __init__(self, args: List[str], user_id: str, chat_id: str):
         self.args = args
-        self.db = db  # Disponibiliza o módulo de banco de dados para todos os comandos
+        self.user_id = user_id  # Quem enviou o comando
+        self.chat_id = chat_id  # De onde o comando foi enviado (grupo ou privado)
+        self.db = db
         self.logging = logging
 
     @abstractmethod
@@ -29,8 +31,8 @@ class BaseCommand(ABC):
 class ManagerCommand(BaseCommand):
     """
     Interface base para um comando que PRECISA de acesso ao WhatsAppManager.
-    Usado para comandos que precisam verificar status, logar ou interagir com o worker (ex: /status, /logs, /sistema).
+    Usado para comandos que precisam verificar status, logar ou interagir com o worker.
     """
-    def __init__(self, args: List[str], manager: 'WhatsAppManager'):
-        super().__init__(args)
+    def __init__(self, args: List[str], user_id: str, chat_id: str, manager: 'WhatsAppManager'):
+        super().__init__(args, user_id, chat_id)
         self.manager = manager

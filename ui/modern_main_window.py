@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 from PyQt6.QtGui import QFont, QColor, QBrush, QPainter
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QPropertyAnimation, QRect
 from datetime import datetime, timedelta
 import pyqtgraph as pg
 from decimal import Decimal
@@ -548,6 +548,7 @@ class ModernMainWindow(QMainWindow):
     """Janela principal moderna"""
     
     logout_requested = pyqtSignal()
+    show_notification_signal = pyqtSignal(str, str)
     
     def __init__(self, current_user):
         super().__init__()
@@ -571,6 +572,15 @@ class ModernMainWindow(QMainWindow):
             self.config.get('printer', {})
         )
         self.sync_manager = SyncManager() # <--- ADICIONAR AQUI
+
+        # Integração com WhatsApp para notificações
+        try:
+            from integrations.whatsapp_manager import WhatsAppManager
+            self.whatsapp_manager = WhatsAppManager.get_instance()
+            self.whatsapp_manager.set_main_window(self)
+            logging.info("Integração com WhatsApp Manager estabelecida na janela principal.")
+        except Exception as e:
+            logging.error(f"Falha ao integrar com WhatsApp Manager: {e}", exc_info=True)
 
         # Inicia o handler da balança globalmente
         self.scale_handler.start()
@@ -599,6 +609,8 @@ class ModernMainWindow(QMainWindow):
         self.credit_check_timer.timeout.connect(self.check_credit_status)
         self.credit_check_timer.start(3600000) # Checa a cada hora
         self.check_credit_status() # Checagem inicial
+
+        self.show_notification_signal.connect(self.display_notification)
 
     def show_update_notification(self, version, description):
         """Exibe uma notificação de que uma nova atualização está disponível."""
@@ -911,3 +923,45 @@ class ModernMainWindow(QMainWindow):
             else:
                 self.showFullScreen()
         super().keyPressEvent(event)
+
+    @pyqtSlot(str, str)
+    def display_notification(self, title, message):
+        """Exibe uma caixa de diálogo de notificação estilizada."""
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(title)
+        
+        # HTML para formatar o texto com quebra de linha
+        formatted_message = message.replace('\n', '<br>')
+        msg_box.setText(f"<p style='font-size: 16px; color: #333;'>{formatted_message}</p>")
+        
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        
+        # Estilo customizado para um visual mais agradável
+        msg_box.setStyleSheet(f"""
+            QMessageBox {{
+                background-color: {ModernTheme.WHITE};
+                border: 1px solid {ModernTheme.GRAY_LIGHT};
+                border-radius: 15px;
+                padding: 20px;
+            }}
+            QMessageBox QLabel {{
+                color: {ModernTheme.DARK};
+            }}
+            QMessageBox QPushButton {{
+                background-color: {ModernTheme.PRIMARY};
+                color: {ModernTheme.WHITE};
+                border: none;
+                padding: 12px 25px;
+                border-radius: 8px;
+                font-weight: bold;
+                min-width: 90px;
+            }}
+            QMessageBox QPushButton:hover {{
+                background-color: {ModernTheme.PRIMARY_DARK};
+            }}
+        """)
+        
+        # Traz a janela principal para frente antes de mostrar o diálogo
+        self.raise_()
+        self.activateWindow()
+        msg_box.exec()

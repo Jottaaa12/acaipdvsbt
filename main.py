@@ -85,6 +85,7 @@ from ui.modern_login import ModernLoginDialog as LoginDialog
 import database as db
 import updater
 from log_handler import QtLogHandler
+from aviso_scheduler import AvisoScheduler
 
 class PDVApplication:
     def __init__(self, app):
@@ -253,8 +254,15 @@ class PDVApplication:
                 
                 # Inicia a conexão automática com o WhatsApp
                 whatsapp_manager = WhatsAppManager.get_instance()
+                whatsapp_manager.set_main_window(self.main_window) # Conecta o manager à UI
                 if not whatsapp_manager.is_ready:
                     whatsapp_manager.connect()
+                
+                # Inicia o agendador de avisos
+                self.aviso_scheduler = AvisoScheduler(whatsapp_manager)
+                self.aviso_scheduler.start_scheduler()
+                logging.info("AvisoScheduler iniciado.")
+
             except Exception as e:
                 logging.error(f"Erro ao iniciar integrações automáticas: {e}")
     
@@ -283,6 +291,12 @@ class PDVApplication:
         self.current_user = None
         QTimer.singleShot(100, self.show_login)
     
+    def stop_schedulers(self):
+        """Para todos os agendadores em execução."""
+        if hasattr(self, 'aviso_scheduler') and self.aviso_scheduler:
+            self.aviso_scheduler.stop_scheduler()
+            logging.info("AvisoScheduler parado.")
+        # Adicionar outros agendadores aqui, se houver
     def run(self):
         # Executa a aplicacao
         self.show_login()
@@ -304,6 +318,7 @@ def main():
         pdv_app = PDVApplication(app)
         logging.info("Executando a aplicacao...")
         exit_code = pdv_app.run()
+        pdv_app.stop_schedulers() # Parar agendadores antes de sair
         logging.info(f"Aplicacao encerrada com codigo de saida: {exit_code}")
         sys.exit(exit_code)
     except Exception as e:

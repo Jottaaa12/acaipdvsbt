@@ -11,6 +11,8 @@ from PyQt6.QtGui import QPixmap
 from config_manager import ConfigManager
 from ui.theme import ModernTheme
 from data.settings_repository import SettingsRepository
+# Import para acessar a configuração específica do WhatsApp
+from integrations.whatsapp_config import get_whatsapp_config
 
 class QRCodeDialog(QDialog):
     """Um diálogo modal simples para exibir o QR Code do WhatsApp de forma clara."""
@@ -233,6 +235,20 @@ class WhatsAppWidget(QWidget):
         notification_number_layout.addWidget(self.save_notification_number_button, 1, 1, 1, 1)
         layout.addWidget(notification_number_group)
 
+        # Group Notification ID Group
+        group_notification_group = QGroupBox("ID do Grupo para Notificações")
+        group_notification_layout = QGridLayout(group_notification_group)
+        group_notification_layout.setSpacing(10)
+
+        self.group_notification_id_input = QLineEdit(placeholderText="ID do grupo (Ex: 1234567890@g.us)")
+        self.save_group_notification_id_button = QPushButton("Salvar ID do Grupo")
+        self.save_group_notification_id_button.setMinimumHeight(30)
+
+        group_notification_layout.addWidget(QLabel("Cole aqui o ID do grupo que receberá as notificações de vendas, caixa, etc."), 0, 0, 1, 2)
+        group_notification_layout.addWidget(self.group_notification_id_input, 1, 0, 1, 1)
+        group_notification_layout.addWidget(self.save_group_notification_id_button, 1, 1, 1, 1)
+        layout.addWidget(group_notification_group)
+
         qr_info_group = QGroupBox("QR Code")
         qr_info_layout = QVBoxLayout(qr_info_group)
         qr_info_label = QLabel("Ao clicar em 'Conectar', o QR Code será exibido em uma nova janela para facilitar a leitura.")
@@ -249,6 +265,7 @@ class WhatsAppWidget(QWidget):
         self.save_managers_button.clicked.connect(self._save_managers)
         self.send_test_button.clicked.connect(self.send_test_whatsapp_message)
         self.save_notification_number_button.clicked.connect(self._save_notification_number)
+        self.save_group_notification_id_button.clicked.connect(self._save_group_notification_id)
         
         return connection_tab
 
@@ -371,11 +388,20 @@ class WhatsAppWidget(QWidget):
             self.managers_list_widget.addItems(numbers)
         
         # Load the notification number from config.json into the dedicated input
-        whatsapp_config = self.config_manager.get_section('whatsapp')
-        notification_number = whatsapp_config.get('notification_number', '')
+        whatsapp_config_main = self.config_manager.get_section('whatsapp')
+        notification_number = whatsapp_config_main.get('notification_number', '')
         self.notification_number_input.setText(notification_number)
         # Also set the test number input for convenience, if it's still desired
         self.test_number_input.setText(notification_number)
+
+        # Load Group Notification ID from whatsapp_config.json
+        try:
+            wa_config = get_whatsapp_config()
+            group_id = wa_config.get('advanced.GROUP_NOTIFICATION_ID', '')
+            self.group_notification_id_input.setText(group_id)
+        except Exception as e:
+            logging.error(f"Erro ao carregar ID do grupo de notificação: {e}", exc_info=True)
+            self.group_notification_id_input.setText("") # Ensure it's empty on error
 
     def _add_manager(self):
         number = self.new_manager_input.text().strip()
@@ -427,6 +453,17 @@ class WhatsAppWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Não foi possível salvar o número de notificação padrão.\n\nErro: {e}")
             logging.error(f"Erro ao salvar número de notificação padrão: {e}", exc_info=True)
+
+    def _save_group_notification_id(self):
+        group_id = self.group_notification_id_input.text().strip()
+        try:
+            wa_config = get_whatsapp_config()
+            wa_config.set('advanced.GROUP_NOTIFICATION_ID', group_id)
+            wa_config.save_config()
+            QMessageBox.information(self, "Sucesso", "ID do Grupo para notificações salvo com sucesso!")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Não foi possível salvar o ID do Grupo.\n\nErro: {e}")
+            logging.error(f"Erro ao salvar ID do grupo de notificação: {e}", exc_info=True)
 
     def _create_toggle_switch(self, text):
         widget = QWidget()

@@ -97,6 +97,7 @@ class WhatsAppConfig:
             'custom_user_agent': 'PDV-Desktop',
             'proxy_settings': None,
             'custom_baileys_version': None,
+            'GROUP_NOTIFICATION_ID': '', # ID do grupo para notificações. Ex: "1234567890@g.us"
         }
     }
 
@@ -173,54 +174,54 @@ class WhatsAppConfig:
 
     def validate_phone(self, phone: str) -> Dict[str, Any]:
         """
-        Valida número de telefone com regex e retorna informações.
+        Valida e normaliza um número de telefone ou JID do WhatsApp.
 
         Returns:
             {
                 'valid': bool,
-                'normalized': str or None,
+                'normalized': str or None (retorna o JID completo),
                 'error': str or None
             }
         """
-        result = {
-            'valid': False,
-            'normalized': None,
-            'error': None
-        }
-
+        result = {'valid': False, 'normalized': None, 'error': None}
         if not phone:
             result['error'] = 'Número de telefone não pode ser vazio'
             return result
 
-        phone = str(phone).strip()
+        phone_str = str(phone).strip()
 
-        # Verificar com regex
-        regex = self.config['validation']['phone_regex']
-        if not re.match(regex, phone):
-            result['error'] = 'Formato de telefone inválido'
+        # Se for um ID de grupo, consideramos válido e retornamos como está.
+        if phone_str.endswith('@g.us'):
+            result['valid'] = True
+            result['normalized'] = phone_str
             return result
 
-        # Normalizar (remover formatação)
-        normalized = re.sub(r'[^\d]', '', phone)
+        # Para outros JIDs (ex: @s.whatsapp.net, @lid), extraímos a parte numérica
+        number_part = phone_str.split('@')[0]
+        
+        # Normalizar (remover tudo que não for dígito)
+        normalized = re.sub(r'[^\d]', '', number_part)
 
-        # Remover o código do país (55) para facilitar a manipulação
-        if normalized.startswith('55'):
-            number_without_cc = normalized[2:]
-        else:
-            number_without_cc = normalized
+        if not normalized:
+            result['error'] = 'Formato de telefone inválido (sem dígitos)'
+            return result
 
-        # Verificar se é um número de celular brasileiro (DDD de 11 a 99)
-        # e se tem 10 dígitos (DDD + 8 dígitos), o que indica a falta do 9
+        # Adicionar DDI do Brasil se não estiver presente
+        if not normalized.startswith('55'):
+            normalized = '55' + normalized
+        
+        # Isolar o número sem o DDI para checar o 9º dígito
+        number_without_cc = normalized[2:]
+        
+        # Adicionar o nono dígito se for um celular brasileiro e não o tiver
         if 11 <= int(number_without_cc[:2]) <= 99 and len(number_without_cc) == 10:
-            # Adiciona o nono dígito '9' após o DDD
             number_without_cc = number_without_cc[:2] + '9' + number_without_cc[2:]
 
-        # Remontar o número com o código do país
-        final_number = '55' + number_without_cc
+        # Remontar o JID completo com o sufixo padrão do WhatsApp
+        final_jid = '55' + number_without_cc + '@s.whatsapp.net'
 
         result['valid'] = True
-        result['normalized'] = final_number
-
+        result['normalized'] = final_jid
         return result
 
     def get_template(self, template_name: str) -> Optional[str]:
