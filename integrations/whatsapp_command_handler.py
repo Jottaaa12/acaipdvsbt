@@ -16,10 +16,10 @@ from .commands.produto_commands import ProdutoCommand
 from .commands.estoque_commands import EstoqueCommand
 from .commands.relatorio_commands import SalesReportCommand, DashboardCommand, ProdutosVendidosCommand
 from .commands.admin_commands import NotificationsCommand, BackupCommand, GerenteCommand
-from .commands.sistema_commands import StatusCommand, LogsCommand, SistemaCommand
+from .commands.sistema_commands import StatusCommand, LogsCommand, SistemaCommand, DbStatusCommand
 from .commands.aviso_command import AvisoCommand
 from .commands.aviso_agendado_command import AvisoAgendadoCommand
-from .commands.monitor_command import MonitorCommand
+from .commands.monitor_command import MonitorCommand, OuvirCommand
 from .commands.fun_commands import (
     SorteioCommand, QuizCommand, PalavraDoDiaCommand, MemeCommand, ConselhoCommand,
     ElogioCommand, FraseCommand, MotivacaoCommand, PiadaCommand,
@@ -43,6 +43,7 @@ class CommandHandler:
             '/relatorio': SalesReportCommand,  # Alias
             '/status': StatusCommand,
             '/logs': LogsCommand,
+            '/db_status': DbStatusCommand,
             '/caixa': CaixaCommand,
             '/produto': ProdutoCommand,
             '/estoque': EstoqueCommand,
@@ -56,6 +57,7 @@ class CommandHandler:
             '/aviso': AvisoCommand,
             '/aviso_agendado': AvisoAgendadoCommand,
             '/verificar_pdv': MonitorCommand,
+            '/ouvir': OuvirCommand,
             # Comandos de diversão
             '/sorteio': SorteioCommand,
             '/quiz': QuizCommand,
@@ -186,7 +188,8 @@ class CommandHandler:
                 response = command_instance.execute()
                 
                 # Log de sucesso
-                manager.logger.log_command(sender=sender_phone_with_suffix, command=command_text, success=True, response_preview=response[:150])
+                response_preview = response[:150] if response else ""
+                manager.logger.log_command(sender=sender_phone_with_suffix, command=command_text, success=True, response_preview=response_preview)
 
             except Exception as e:
                 logging.error(f"Erro ao executar o comando '{command_name}': {e}", exc_info=True)

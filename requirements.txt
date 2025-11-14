@@ -10,3 +10,5 @@ Flask
 supabase
 mss
 opencv-python
+sounddevice
+scipy

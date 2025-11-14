@@ -74,7 +74,11 @@ a = Analysis(
         'mss',
         'mss.tools',
         'cv2',
-        'numpy'
+        'numpy',
+        # --- Dependências para gravação de áudio ---
+        'sounddevice',
+        'scipy',
+        'scipy.io.wavfile'
     ] + hidden_imports_from_submodules, # Adiciona os submódulos coletados
     hookspath=['./hooks'],
     runtime_hooks=[],

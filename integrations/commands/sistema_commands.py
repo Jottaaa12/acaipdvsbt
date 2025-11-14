@@ -1,5 +1,5 @@
 # integrations/commands/sistema_commands.py
-from .base_command import ManagerCommand
+from .base_command import BaseCommand, ManagerCommand
 from typing import List, Any, Dict
 import os
 import json
@@ -428,3 +428,25 @@ class SistemaCommand(ManagerCommand):
         
         else:
             return f"Subcomando '/sistema {subcommand}' não reconhecido."
+
+class DbStatusCommand(BaseCommand):
+    """
+    Retorna estatísticas vitais do banco de dados (tamanho, contagens).
+    """
+    def execute(self) -> str:
+        try:
+            self.logging.info("Executando /db_status...")
+            stats = self.db.get_db_statistics()
+
+            response = "🗃️ *Status do Banco de Dados (pdv.db)*\n\n"
+            response += f"  - *Tamanho do Arquivo:* `{stats['file_size_mb']:.2f} MB`\n"
+            response += f"  - *Vendas (Hoje):* `{stats['today_sales_count']}`\n"
+            response += f"  - *Vendas (Total):* `{stats['total_sales_count']}`\n"
+            response += f"  - *Produtos Cadastrados:* `{stats['total_products_count']}`\n"
+            response += f"  - *Clientes Cadastrados:* `{stats['total_customers_count']}`"
+
+            return response
+
+        except Exception as e:
+            self.logging.error(f"Erro ao gerar /db_status: {e}", exc_info=True)
+            return "❌ Erro ao consultar as estatísticas do banco de dados."

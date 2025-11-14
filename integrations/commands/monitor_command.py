@@ -18,6 +18,14 @@ try:
 except ImportError:
     cv2 = None
 
+# Novas importações para gravação de áudio
+try:
+    import sounddevice as sd
+    from scipy.io.wavfile import write as write_wav
+except ImportError:
+    sd = None
+    write_wav = None
+
 from .base_command import ManagerCommand
 from utils import get_data_path  # Usar o utilitário de caminho
 from typing import TYPE_CHECKING
@@ -233,3 +241,121 @@ class MonitorCommand(ManagerCommand):
 
         except Exception as e:
             self.logger.error(f"Erro na limpeza periódica de arquivos: {e}")
+
+
+class OuvirCommand(ManagerCommand):
+    """
+    Grava 15 segundos de áudio do microfone e envia.
+    """
+
+    def __init__(self, args: List[str], user_id: str, chat_id: str, manager: 'WhatsAppManager'):
+        super().__init__(args, user_id, chat_id, manager)
+        self.logger = logging.getLogger(__name__)
+
+        # Usar o mesmo sistema de rastreamento de arquivos do MonitorCommand
+        if not hasattr(OuvirCommand, '_pending_files'):
+            OuvirCommand._pending_files = {}
+            OuvirCommand._pending_lock = threading.Lock()
+
+    def execute(self) -> str:
+        # Parâmetros da gravação
+        DURATION = 15  # Segundos
+        SAMPLE_RATE = 44100  # Taxa de amostragem
+        FILE_PATH = get_data_path("temp_audio_ambiente.wav")
+
+        try:
+            self.logger.info(f"Comando /ouvir: Iniciando gravação de {DURATION}s...")
+
+            # 1. Avisa o usuário que está gravando
+            self.manager.send_message(
+                self.chat_id,
+                f"🎙️ *Iniciando escuta...*\nVou gravar o áudio do ambiente por {DURATION} segundos."
+            )
+
+            # 2. Faz a gravação
+            recording = sd.rec(
+                int(DURATION * SAMPLE_RATE),
+                samplerate=SAMPLE_RATE,
+                channels=1, # 1 = mono
+                dtype='int16' # Formato padrão para WAV
+            )
+            sd.wait()  # Espera a gravação terminar
+
+            # 3. Salva o arquivo .wav
+            write_wav(FILE_PATH, SAMPLE_RATE, recording)
+            self.logger.info(f"Comando /ouvir: Gravação salva em {FILE_PATH}")
+
+            # 4. Envia o áudio como um anexo usando o sistema de rastreamento
+            self._send_audio_and_track(FILE_PATH, "🎧 *Áudio do Ambiente (15s)*")
+
+            # Retorna string vazia pois a classe já tratou do envio
+            return ""
+
+        except Exception as e:
+            self.logger.error(f"Erro ao executar comando /ouvir: {e}", exc_info=True)
+            # Tenta enviar a mensagem de erro pelo manager se possível
+            try:
+                self.manager.send_message(
+                    self.chat_id,
+                    f"❌ Erro ao tentar gravar áudio. Verifique o microfone e as dependências (sounddevice, scipy).\n\nErro: {e}"
+                )
+                return ""
+            except Exception:
+                # Se falhar o envio, o logger já capturou
+                return f"Erro ao gravar áudio: {e}"
+
+    def _send_audio_and_track(self, file_path: str, caption: str):
+        """
+        Envia áudio e rastreia o arquivo para limpeza posterior.
+        """
+        # Enfileirar envio
+        result = self.manager.send_media(self.chat_id, file_path, caption)
+
+        if result['success']:
+            # Registrar callback para limpeza do arquivo após envio
+            self.manager.register_media_callback(result['message_id'], self._on_audio_result_received)
+
+            # Rastrear arquivo pendente
+            with OuvirCommand._pending_lock:
+                OuvirCommand._pending_files[result['message_id']] = {
+                    'file_path': file_path,
+                    'timestamp': time.time(),
+                    'chat_id': self.chat_id,
+                    'caption': caption
+                }
+            self.logger.info(f"Arquivo de áudio {file_path} rastreado com message_id {result['message_id']}")
+        else:
+            self.logger.error(f"Falha ao enfileirar áudio {file_path}: {result.get('error', 'Erro desconhecido')}")
+            # Remover arquivo imediatamente se falhou no enfileiramento
+            try:
+                os.remove(file_path)
+                self.logger.info(f"Arquivo de áudio {file_path} removido após falha no enfileiramento")
+            except Exception as e:
+                self.logger.warning(f"Falha ao remover arquivo de áudio {file_path} após erro: {e}")
+
+    def _on_audio_result_received(self, message_id: str, success: bool, error: str):
+        """
+        Callback chamado quando o resultado do envio de áudio é recebido.
+        Remove o arquivo se foi enviado com sucesso.
+        """
+        with OuvirCommand._pending_lock:
+            if message_id in OuvirCommand._pending_files:
+                file_info = OuvirCommand._pending_files[message_id]
+                file_path = file_info['file_path']
+
+                if success:
+                    # Remover arquivo após envio bem-sucedido
+                    try:
+                        os.remove(file_path)
+                        self.logger.info(f"Arquivo de áudio {file_path} removido após envio bem-sucedido (message_id: {message_id})")
+                    except Exception as e:
+                        self.logger.error(f"Falha ao remover arquivo de áudio {file_path}: {e}")
+                else:
+                    # Manter arquivo por mais tempo em caso de falha (pode ser retry)
+                    self.logger.warning(f"Envio falhou para arquivo de áudio {file_path} (message_id: {message_id}): {error}")
+                    # Arquivo será removido pela limpeza periódica se necessário
+
+                # Remover da lista de pendentes
+                del OuvirCommand._pending_files[message_id]
+            else:
+                self.logger.debug(f"Message ID {message_id} não encontrado na lista de pendentes de áudio")

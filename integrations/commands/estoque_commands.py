@@ -32,7 +32,7 @@ class EstoqueCommand(BaseCommand):
     def _handle_estoque_grupos(self) -> str:
         """Lista os grupos de estoque."""
         try:
-            grupos = self.db.get_all_groups()
+            grupos = stock_manager.get_all_stock_groups()
             if not grupos:
                 return "Nenhum grupo de estoque encontrado."
 
@@ -153,15 +153,14 @@ class EstoqueCommand(BaseCommand):
             qtd_inicial = int(remaining_args[1])
             unidade = " ".join(remaining_args[2:]) if len(remaining_args) > 2 else 'un'
 
-            grupos = self.db.get_all_groups()
+            grupos = stock_manager.get_all_stock_groups()
             grupo_id = next((g['id'] for g in grupos if g['nome'].lower() == grupo_nome.lower()), None)
             if not grupo_id:
                 return f"❌ Grupo '{grupo_nome}' não encontrado."
 
-            success, message = stock_manager.add_item({
-                'codigo': codigo, 'nome': nome, 'grupo_id': grupo_id,
-                'estoque_atual': qtd_inicial, 'estoque_minimo': 0, 'unidade_medida': unidade
-            })
+            success, message = stock_manager.add_stock_item(
+                codigo, nome, grupo_id, qtd_inicial, 0, unidade
+            )
 
             if success:
                 return f"✅ Item '{nome}' adicionado ao estoque com {qtd_inicial} {unidade}."
@@ -186,7 +185,7 @@ class EstoqueCommand(BaseCommand):
                 return "❌ Máximo de 10 produtos por vez. Divida em mensagens menores."
 
             # Carrega os grupos uma vez para todos os produtos
-            grupos = self.db.get_all_groups()
+            grupos = stock_manager.get_all_stock_groups()
             grupo_dict = {g['nome'].lower(): g['id'] for g in grupos}
 
             responses = []
@@ -230,10 +229,9 @@ class EstoqueCommand(BaseCommand):
                     qtd_inicial = int(remaining_args[1])
                     unidade = " ".join(remaining_args[2:]) if len(remaining_args) > 2 else 'un'
 
-                    success, message = stock_manager.add_item({
-                        'codigo': codigo, 'nome': nome, 'grupo_id': grupo_id,
-                        'estoque_atual': qtd_inicial, 'estoque_minimo': 0, 'unidade_medida': unidade
-                    })
+                    success, message = stock_manager.add_stock_item(
+                        codigo, nome, grupo_id, qtd_inicial, 0, unidade
+                    )
 
                     if success:
                         responses.append(f"✅ {codigo}: '{nome}' (+{qtd_inicial} {unidade})")
@@ -317,7 +315,7 @@ class EstoqueCommand(BaseCommand):
             responses = []
             for item_code, quantity_str in items_to_decrease:
                 quantity = int(quantity_str)
-                success, message = stock_manager.decrease_stock(item_code, quantity)
+                success, message = stock_manager.give_stock_out(item_code, quantity)
                 if success:
                     responses.append(f"✅ Baixa de {quantity} em '{item_code}' realizada.")
                 else:
@@ -339,7 +337,7 @@ class EstoqueCommand(BaseCommand):
             item_code = args[0]
             new_stock = int(args[1])
 
-            success, message = stock_manager.adjust_stock(item_code, new_stock)
+            success, message = stock_manager.adjust_stock_quantity(item_code, new_stock)
 
             if success:
                 return f"✅ Estoque do item '{item_code}' ajustado para {new_stock}."
