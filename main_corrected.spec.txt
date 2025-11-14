@@ -69,7 +69,12 @@ a = Analysis(
         'jinja2',
         'werkzeug',
         'httpx',
-        'gotrue'
+        'gotrue',
+        # --- Dependências para captura de tela e webcam ---
+        'mss',
+        'mss.tools',
+        'cv2',
+        'numpy'
     ] + hidden_imports_from_submodules, # Adiciona os submódulos coletados
     hookspath=['./hooks'],
     runtime_hooks=[],

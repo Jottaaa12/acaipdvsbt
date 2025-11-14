@@ -29,6 +29,8 @@ class FiadoCommand(BaseCommand):
             return self._handle_fiado_detalhes(command_args)
         elif subcommand == 'cancelar':
             return self._handle_fiado_cancelar(command_args)
+        elif subcommand == 'editar':
+            return self._handle_fiado_editar(command_args)
         else:
             # Se não for um subcomando conhecido, tenta buscar detalhes pelo nome/ID
             return self._handle_fiado_detalhes(self.args)
@@ -152,7 +154,7 @@ class FiadoCommand(BaseCommand):
             sale_to_cancel = self.db.get_credit_sale_details(credit_id)
             if not sale_to_cancel:
                 return f"❌ Fiado com ID `{credit_id}` não encontrado."
-            
+
             if sale_to_cancel['total_paid'] > 0:
                 return f"❌ Fiado ID `{credit_id}` não pode ser cancelado pois já possui pagamentos."
 
@@ -167,6 +169,49 @@ class FiadoCommand(BaseCommand):
         except Exception as e:
             self.logging.error(f"Erro ao cancelar fiado via comando: {e}", exc_info=True)
             return "❌ Ocorreu um erro interno ao cancelar o fiado."
+
+    def _handle_fiado_editar(self, args: List[str]) -> str:
+        """Edita o valor total de um fiado que não possui pagamentos."""
+        if len(args) != 2:
+            return "Uso: /fiado editar <ID do fiado> <novo valor>"
+
+        try:
+            credit_id = int(args[0])
+            new_amount = Decimal(args[1].replace(',', '.'))
+
+            if new_amount <= 0:
+                return "❌ O valor deve ser maior que zero."
+
+            # Verificar se o usuário admin existe
+            admin_user = self.db.get_user_by_username('admin')
+            if not admin_user:
+                return "❌ Operação falhou: Usuário 'admin' não encontrado."
+
+            # Buscar detalhes do fiado
+            credit_sale = self.db.get_credit_sale_details(credit_id)
+            if not credit_sale:
+                return f"❌ Fiado com ID `{credit_id}` não encontrado."
+
+            # Validar que não possui pagamentos
+            if credit_sale['total_paid'] > 0:
+                return f"❌ Fiado ID `{credit_id}` não pode ser editado pois já possui pagamentos (R$ {credit_sale['total_paid']:.2f})."
+
+            # Validar status
+            if credit_sale['status'] in ['paid', 'cancelled']:
+                return f"❌ Fiado ID `{credit_id}` não pode ser editado pois está com status '{credit_sale['status']}'."
+
+            # Atualizar o valor do fiado
+            success, message = self.db.update_credit_sale_amount(credit_id, new_amount, admin_user['id'])
+
+            if success:
+                return f"✅ Valor do fiado ID `{credit_id}` (Cliente: {credit_sale['customer_name']}) atualizado de R$ {credit_sale['amount']:.2f} para R$ {new_amount:.2f}."
+            else:
+                return f"❌ Erro ao editar fiado: {message}"
+        except ValueError:
+            return "❌ ID ou valor inválido. Ex: /fiado editar 123 150,00"
+        except Exception as e:
+            self.logging.error(f"Erro ao editar fiado via comando: {e}", exc_info=True)
+            return "❌ Ocorreu um erro interno ao editar o fiado."
 
     def _handle_fiado_detalhes(self, args: List[str]) -> str:
         """Mostra detalhes de um fiado por ID ou de todos os fiados de um cliente."""

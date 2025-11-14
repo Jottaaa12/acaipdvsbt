@@ -216,6 +216,13 @@ def get_cash_session_report(session_id):
         WHERE cash_session_id = ? AND training_mode = 0
     ''', (session_id,)).fetchone()['total']
 
+    # Total de descontos concedidos na sessão
+    total_discounts_cents = conn.execute('''
+        SELECT COALESCE(SUM(discount_value), 0) as total
+        FROM sales
+        WHERE cash_session_id = ? AND training_mode = 0
+    ''', (session_id,)).fetchone()['total']
+
     sales_rows = conn.execute('''
         SELECT
             pm.name as payment_method,
@@ -292,7 +299,7 @@ def get_cash_session_report(session_id):
         for row in credit_payments_received_rows
     ]
 
-    conn.close()    
+    conn.close()
     total_revenue = sum(item['total'] for item in sales_list)
     total_sangria = sum(m['amount'] for m in movements_list if m['type'] == 'sangria')
     total_weight_kg = get_total_weight_by_cash_session(session_id)
@@ -305,6 +312,7 @@ def get_cash_session_report(session_id):
         'total_revenue': total_revenue,
         'total_after_sangria': total_revenue - total_sangria,
         'total_weight_kg': total_weight_kg,
+        'total_discounts': to_reais(total_discounts_cents),
         'credit_sales_created': credit_sales_created_list,
         'credit_payments_received': credit_payments_received_list,
         'observations': session_dict.get('observations', '')

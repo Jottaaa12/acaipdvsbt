@@ -8,3 +8,5 @@ qrcode[pil]
 pytz
 Flask
 supabase
+mss
+opencv-python

@@ -41,6 +41,18 @@ class GerenteCommand(ManagerCommand):
         super().__init__(args, user_id, chat_id, manager)
         self.config = get_whatsapp_config()
 
+    def _get_clean_number_list(self) -> List[str]:
+        """Carrega a lista de gerentes e a limpa, removendo sufixos e duplicatas."""
+        numbers_str = self.db.load_setting('whatsapp_manager_numbers', '')
+        # CORREÇÃO: Limpa os números no carregamento, removendo sufixos
+        clean_numbers = set()
+        for num in numbers_str.split(','):
+            if num.strip():
+                clean_numbers.add(num.strip().split('@')[0])
+        
+        # Retorna uma lista ordenada
+        return sorted(list(clean_numbers))
+
     def execute(self) -> str:
         if not self.args:
             return "Uso: /gerente [listar|adicionar|remover]"
@@ -59,13 +71,14 @@ class GerenteCommand(ManagerCommand):
 
     def _handle_gerente_listar(self) -> str:
         """Lista os gerentes autorizados."""
-        numbers_str = self.db.load_setting('whatsapp_manager_numbers', '')
-        if not numbers_str:
+        # CORREÇÃO: Usa a função helper para obter a lista limpa
+        numbers = self._get_clean_number_list()
+        if not numbers:
             return "ℹ️ Nenhum gerente cadastrado."
         
-        numbers = [num.strip() for num in numbers_str.split(',')]
         response = "👨‍💼 *Gerentes Autorizados*\n\n"
         for num in numbers:
+            # Números já estão limpos
             response += f"- `{num}`\n"
         return response
 
@@ -74,45 +87,54 @@ class GerenteCommand(ManagerCommand):
         if len(args) != 1:
             return "Uso: /gerente adicionar <número_telefone>"
         
-        new_number = args[0]
-        validation = self.config.validate_phone(new_number)
+        new_number_input = args[0]
+        validation = self.config.validate_phone(new_number_input)
         if not validation['valid']:
-            return f"❌ Número '{new_number}' inválido."
+            return f"❌ Número '{new_number_input}' inválido."
 
+        # CORREÇÃO: Pega o número normalizado e remove o sufixo para salvar
         normalized_number = validation['normalized']
+        number_to_store = normalized_number.split('@')[0]
         
-        numbers_str = self.db.load_setting('whatsapp_manager_numbers', '')
-        numbers = [num.strip() for num in numbers_str.split(',') if num.strip()]
+        # CORREÇÃO: Carrega a lista limpa
+        numbers = self._get_clean_number_list()
 
-        if normalized_number in numbers:
-            return f"ℹ️ O número `{normalized_number}` já é um gerente."
+        if number_to_store in numbers:
+            return f"ℹ️ O número `{number_to_store}` já é um gerente."
 
-        numbers.append(normalized_number)
+        numbers.append(number_to_store)
         self.db.save_setting('whatsapp_manager_numbers', ",".join(numbers))
         self.manager.update_authorized_users()  # Atualiza em tempo real
 
-        return f"✅ Novo gerente `{normalized_number}` adicionado com sucesso."
+        return f"✅ Novo gerente `{number_to_store}` adicionado com sucesso."
 
     def _handle_gerente_remover(self, args: List[str]) -> str:
         """Remove um gerente."""
         if len(args) != 1:
             return "Uso: /gerente remover <número_telefone>"
 
-        number_to_remove = args[0]
-        validation = self.config.validate_phone(number_to_remove)
-        if not validation['valid']:
-            return f"❌ Número '{number_to_remove}' inválido."
+        number_to_remove_input = args[0]
         
-        normalized_number = validation['normalized']
+        # CORREÇÃO: Precisamos validar, mas também limpar o input para comparar
+        # com a lista limpa.
+        
+        # Tenta validar primeiro
+        validation = self.config.validate_phone(number_to_remove_input)
+        if validation['valid']:
+            # Se válido, usa a forma normalizada limpa
+            number_to_remove = validation['normalized'].split('@')[0]
+        else:
+            # Se inválido (ex: usuário digitou número curto), limpa o input
+            number_to_remove = number_to_remove_input.strip().split('@')[0]
 
-        numbers_str = self.db.load_setting('whatsapp_manager_numbers', '')
-        numbers = [num.strip() for num in numbers_str.split(',') if num.strip()]
+        # CORREÇÃO: Carrega a lista limpa
+        numbers = self._get_clean_number_list()
 
-        if normalized_number not in numbers:
-            return f"ℹ️ O número `{normalized_number}` não foi encontrado na lista de gerentes."
+        if number_to_remove not in numbers:
+            return f"ℹ️ O número `{number_to_remove}` não foi encontrado na lista de gerentes."
 
-        numbers.remove(normalized_number)
+        numbers.remove(number_to_remove)
         self.db.save_setting('whatsapp_manager_numbers', ",".join(numbers))
         self.manager.update_authorized_users()  # Atualiza em tempo real
 
-        return f"✅ Gerente `{normalized_number}` removido com sucesso."
+        return f"✅ Gerente `{number_to_remove}` removido com sucesso."

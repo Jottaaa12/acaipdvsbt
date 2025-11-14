@@ -190,47 +190,56 @@ class WhatsAppSalesNotifier:
             user_name = session.get('username', 'N/A')
             open_time = session.get('open_time').strftime('%d/%m/%Y %H:%M') if session.get('open_time') else 'N/A'
             close_time = session.get('close_time').strftime('%H:%M') if session.get('close_time') else 'N/A'
-            
+
             initial = Decimal(session.get('initial_amount', 0))
             expected = Decimal(session.get('expected_amount', 0))
             final = Decimal(session.get('final_amount', 0))
             difference = Decimal(session.get('difference', 0))
 
-            # Resumo de Vendas
-            sales_summary = "*Resumo de Vendas:*\n"
+            # Resumo de Vendas por método de pagamento
+            sales_summary = "*VENDAS REALIZADAS:*\n"
             if not sales:
                 sales_summary += "_Nenhuma venda registrada._\n"
             else:
                 for sale in sales:
-                    sales_summary += f"  - {sale['payment_method']}: R$ {sale['total']:.2f} ({sale['count']} vendas)\n"
-            total_revenue = sum(Decimal(s['total']) for s in sales)
-            sales_summary += f"*Total em Vendas:* R$ {total_revenue:.2f}\n"
+                    sales_summary += f"  • {sale['payment_method']}: R$ {sale['total']:.2f} ({sale['count']} vendas)\n"
+
+            # Total de vendas (sem movimentações)
+            total_sales_revenue = sum(Decimal(s['total']) for s in sales)
+            sales_summary += f"\n💰 *TOTAL DAS VENDAS:* R$ {total_sales_revenue:.2f}\n"
 
             if total_weight_kg > 0:
-                sales_summary += f"⚖️ *Total de Açaí Vendido:* {total_weight_kg:.3f} kg\n"
+                sales_summary += f"⚖️ *Açaí Vendido:* {total_weight_kg:.3f} kg\n"
 
             # Movimentações de Caixa Detalhadas
-            movements_summary = "\n*Movimentações de Caixa:*\n"
+            movements_summary = "\n💸 *MOVIMENTAÇÕES DE CAIXA:*\n"
             if not movements:
                 movements_summary += "_Nenhuma movimentação registrada._\n"
             else:
                 for move in movements:
                     symbol = '➕' if move['type'] == 'suprimento' else '➖'
-                    movements_summary += f"{symbol} {move['type'].capitalize()}: R$ {move['amount']:.2f} ({move['reason']})\n"
+                    movements_summary += f"  {symbol} {move['type'].capitalize()}: R$ {move['amount']:.2f} ({move['reason']})\n"
+
+            # Total Geral (vendas + movimentações)
+            supplies_total = sum(Decimal(m['amount']) for m in movements if m['type'] == 'suprimento')
+            withdrawals_total = sum(Decimal(m['amount']) for m in movements if m['type'] == 'sangria')
+            total_geral = total_sales_revenue + supplies_total - withdrawals_total
+
+            movements_summary += f"\n💵 *TOTAL GERAL (Vendas ± Movimentações):* R$ {total_geral:.2f}\n"
 
             # Resumo de Fiado (Crédito)
-            credit_summary = "\n📝 *RESUMO DE FIADO (CRÉDITO)* 📝\n"
+            credit_summary = "\n📝 *FIADO (CRÉDITO):*\n"
             if not credit_sales_created and not credit_payments_received:
                 credit_summary += "_Nenhuma operação de fiado na sessão._\n"
             else:
                 if credit_sales_created:
-                    credit_summary += "*Novos Fiados no Dia:*\n"
+                    credit_summary += "*Novos Fiados:*\n"
                     for credit in credit_sales_created:
-                        credit_summary += f"  - {credit['customer_name']}: R$ {credit['amount']:.2f}\n"
+                        credit_summary += f"  • {credit['customer_name']}: R$ {credit['amount']:.2f}\n"
                 if credit_payments_received:
-                    credit_summary += "*Pagamentos de Fiado Recebidos:*\n"
+                    credit_summary += "*Pagamentos Recebidos:*\n"
                     for payment in credit_payments_received:
-                        credit_summary += f"  - {payment['customer_name']}: R$ {payment['total_paid']:.2f} ({payment['payment_method']})\n"
+                        credit_summary += f"  • {payment['customer_name']}: R$ {payment['total_paid']:.2f} ({payment['payment_method']})\n"
 
             # Fechamento e Diferença
             diff_symbol = "⚠️" if difference != 0 else "✅"
@@ -238,22 +247,27 @@ class WhatsAppSalesNotifier:
 
             # Observações
             observations = report.get('observations', '')
-            obs_summary = f"\n*Observações:*\n_{observations}_\n" if observations else ""
+            obs_summary = f"\n📝 *OBSERVAÇÕES:*\n_{observations}_\n" if observations else ""
 
             message = (
                 f"❌ *FECHAMENTO DE CAIXA* ❌\n\n"
-                f"*{self._get_store_name()}*\n\n"
-                f"🆔 *Sessão:* #{session.get('id', 'N/A')}\n"
+                f"🏪 *{self._get_store_name()}*\n\n"
+                f"📅 *Data:* {open_time.split(' ')[0]}\n"
                 f"👤 *Operador:* {user_name}\n"
-                f"🕰️ *Período:* {open_time} às {close_time}\n\n"
-                f"{sales_summary}"
-                f"{movements_summary}"
+                f"🕐 *Horário:* {open_time.split(' ')[1]} às {close_time}\n"
+                f"🆔 *Sessão:* #{session.get('id', 'N/A')}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{sales_summary}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{movements_summary}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{credit_summary}\n"
-                f"*Resumo Financeiro:*\n"
-                f"  - Saldo Inicial: R$ {initial:.2f}\n"
-                f"  - Valor Esperado: R$ {expected:.2f}\n"
-                f"  - Valor Contado: R$ {final:.2f}\n"
-                f"{diff_symbol} *Diferença:* {diff_text}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💵 *RESUMO FINAL:*\n"
+                f"  • Saldo Inicial: R$ {initial:.2f}\n"
+                f"  • Valor Esperado: R$ {expected:.2f}\n"
+                f"  • Valor Contado: R$ {final:.2f}\n"
+                f"  {diff_symbol} *Diferença:* {diff_text}\n"
                 f"{obs_summary}"
             )
 
@@ -309,6 +323,7 @@ class WhatsAppSalesNotifier:
             else:
                 customer_name = customer_name.strip()
             total_amount = Decimal(sale_data.get("total_amount", 0.0))
+            discount_value = Decimal(sale_data.get("discount_value", 0.0))
             items = sale_data.get("items", [])
             change_amount = Decimal(change_amount)
 
@@ -352,6 +367,10 @@ class WhatsAppSalesNotifier:
                 payment_str += f"  - Troco: R$ {change_amount:.2f}\n"
 
             # --- Montagem da Mensagem Final ---
+            discount_str = ""
+            if discount_value > 0:
+                discount_str = f"*Desconto:* R$ {discount_value:.2f}\n"
+
             message = (
                 f"✅ *VENDA REALIZADA* ✅\n\n"
                 f"👤 *Cliente:* {customer_name}\n"
@@ -359,6 +378,7 @@ class WhatsAppSalesNotifier:
                 f"🗓️ *Data/Hora:* {now_str}\n\n"
                 f"📋 *ITENS*\n{items_str}\n"
                 f"{payment_str}\n"
+                f"{discount_str}"
                 f"*TOTAL GERAL: R$ {total_amount:.2f}*"
             )
             

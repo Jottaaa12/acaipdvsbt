@@ -313,6 +313,61 @@ def get_monthly_credit_summary():
         'total_due': to_reais(total_due_cents)
     }
 
+def get_stock_report():
+    """Gera um relatório completo de estoque incluindo níveis de estoque e itens com estoque baixo."""
+    conn = get_db_connection()
+
+    # 1. Níveis de estoque por grupo
+    stock_levels_query = """
+        SELECT
+            g.nome as group_name,
+            i.codigo,
+            i.nome,
+            i.estoque_atual,
+            i.estoque_minimo,
+            i.unidade_medida
+        FROM estoque_itens i
+        LEFT JOIN estoque_grupos g ON i.grupo_id = g.id
+        ORDER BY g.nome, i.nome
+    """
+    stock_levels_rows = conn.execute(stock_levels_query).fetchall()
+
+    # 2. Itens com estoque baixo (estoque_atual <= estoque_minimo)
+    low_stock_query = """
+        SELECT
+            i.nome as description,
+            i.estoque_atual as stock
+        FROM estoque_itens i
+        WHERE i.estoque_atual <= i.estoque_minimo
+        ORDER BY i.estoque_atual ASC
+    """
+    low_stock_rows = conn.execute(low_stock_query).fetchall()
+
+    conn.close()
+
+    # Formatar os resultados
+    stock_levels = []
+    for row in stock_levels_rows:
+        stock_levels.append({
+            'group_name': row['group_name'] or 'Sem Grupo',
+            'codigo': row['codigo'],
+            'nome': row['nome'],
+            'estoque_atual': row['estoque_atual'],
+            'unidade_medida': row['unidade_medida'] or 'un'
+        })
+
+    low_stock_items = []
+    for row in low_stock_rows:
+        low_stock_items.append({
+            'description': row['description'],
+            'stock': float(row['stock'])
+        })
+
+    return {
+        'stock_levels': stock_levels,
+        'low_stock_items': low_stock_items
+    }
+
 def get_overdue_evolution():
     """
     Calcula o valor total vencido acumulado para cada um dos últimos 30 dias.
@@ -343,15 +398,15 @@ def get_overdue_evolution():
             )
             WHERE balance_due_cents > 0
         """
-        
+
         cursor = conn.cursor()
         cursor.execute(query, (current_date_str, current_date_str))
         total_overdue_cents = cursor.fetchone()[0]
-        
+
         evolution_data.append({
             'date': current_date_str,
             'amount': to_reais(total_overdue_cents)
         })
-        
+
     conn.close()
     return evolution_data

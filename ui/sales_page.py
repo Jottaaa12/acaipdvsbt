@@ -431,21 +431,23 @@ class SalesPage(QWidget):
             result = dialog.result_data
             payments = result['payments']
             change_amount = result['change']
+            discount_value = result.get('discount_value', 0.0)
 
             # FIX: Re-validar a sessão de caixa antes de registrar a venda
             current_session_id = self.main_window.current_cash_session["id"]
             if not db.get_cash_session_by_id(current_session_id):
-                QMessageBox.critical(self, "Erro de Sessão", 
+                QMessageBox.critical(self, "Erro de Sessão",
                                      "A sessão de caixa atual não é mais válida. Por favor, feche e abra o caixa novamente.")
                 self.main_window.current_cash_session = None # Limpa a sessão inválida
                 return
 
-            # Envia a venda para o banco de dados, agora incluindo o nome do cliente
+            # Envia a venda para o banco de dados, agora incluindo o nome do cliente e desconto
             sale_success, sale_data = db.register_sale_with_user(
                 total_amount, payments, self.current_sale_items, change_amount,
                 user_id=self.main_window.current_user["id"],
                 cash_session_id=current_session_id,
-                customer_name=self.current_sale_customer_name
+                customer_name=self.current_sale_customer_name,
+                discount_value=discount_value
             )
 
             if not sale_success:

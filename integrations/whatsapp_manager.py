@@ -78,6 +78,10 @@ class WhatsAppManager(QObject):
         # Referência da UI
         self.main_window = None
 
+        # Callbacks para resultados de mídia
+        self._media_callbacks: Dict[str, callable] = {}
+        self._media_callbacks_lock = threading.RLock()
+
         # Carregar estado persistente
         self._load_persistent_cache()
         self._load_message_history()
@@ -225,6 +229,61 @@ class WhatsAppManager(QObject):
                                 error_type='internal_error',
                                 traceback=traceback.format_exc())
             self.error_occurred.emit(self.config.get_friendly_error_message('message_failed'))
+            return result
+
+    def send_media(self, chat_id: str, file_path: str, caption: str = "") -> Dict[str, Any]:
+        """
+        Envia um arquivo de mídia (imagem, pdf, etc.) para um chat_id.
+
+        Args:
+            chat_id: O ID do chat (ex: '55119..._@c.us' ou '...-...@g.us')
+            file_path: O caminho absoluto ou relativo para o arquivo de mídia.
+            caption: A legenda opcional para a mídia.
+
+        Returns:
+            dict: Resultado com status da operação de enfileiramento.
+        """
+        result = { 'success': False, 'error': None }
+
+        try:
+            # 1. Validação Simples (O Node.js fará a validação final)
+            if not chat_id or not file_path:
+                result['error'] = "chat_id e file_path são obrigatórios."
+                self.logger.log_error(result['error'], error_type='media_input_error')
+                return result
+
+            if not os.path.exists(file_path):
+                result['error'] = f"Arquivo de mídia não encontrado em: {file_path}"
+                self.logger.log_error(result['error'], error_type='media_file_not_found')
+                return result
+
+            # 2. Verificar se o worker está disponível
+            if not self._worker_thread or not self._worker_thread.isRunning():
+                result['error'] = "Serviço WhatsApp não está em execução"
+                result['error_type'] = 'worker_not_running'
+                self.logger.log_error(result['error'], error_type='worker_not_running')
+                self.error_occurred.emit(result['error'])
+                return result
+
+            # 3. Enfileirar a mídia usando um novo método do worker
+            #    Usamos o chat_id diretamente, pois comandos de gerente geralmente o possuem
+            message_id = self._worker_thread.enqueue_media(chat_id, file_path, caption)
+
+            result['success'] = True
+            result['message_id'] = message_id
+            self.logger.log_message("Mídia enfileirada com sucesso",
+                                  message_id=message_id,
+                                  chat_id=chat_id,
+                                  file_path=file_path)
+            return result
+
+        except Exception as e:
+            result['error'] = f"Erro interno ao enfileirar mídia: {str(e)}"
+            result['error_type'] = 'internal_error'
+            self.logger.log_error(result['error'],
+                                error_type='internal_error',
+                                traceback=traceback.format_exc())
+            self.error_occurred.emit("Falha ao enfileirar mídia.")
             return result
 
     def disconnect(self, cleanup_session: bool = True) -> bool:
@@ -567,6 +626,9 @@ class WhatsAppManager(QObject):
         try:
             self._record_message_result(message_id, success, error)
 
+            # Chamar callbacks de mídia se registrados
+            self._call_media_callbacks(message_id, success, error)
+
             # Emitir log de auditoria
             if success:
                 self.logger.log_audit("message_sent", "", "", True,
@@ -579,6 +641,28 @@ class WhatsAppManager(QObject):
             self.logger.log_error(f"Erro ao processar resultado da mensagem: {e}",
                                 error_type='message_result_processing_error',
                                 message_id=message_id)
+
+    def register_media_callback(self, message_id: str, callback: callable):
+        """Registra callback para resultado de envio de mídia."""
+        with self._media_callbacks_lock:
+            self._media_callbacks[message_id] = callback
+            self.logger.log_message(f"Callback registrado para message_id {message_id}")
+
+    def _call_media_callbacks(self, message_id: str, success: bool, error: str):
+        """Chama callbacks registrados para resultados de mídia."""
+        with self._media_callbacks_lock:
+            if message_id in self._media_callbacks:
+                callback = self._media_callbacks[message_id]
+                try:
+                    callback(message_id, success, error)
+                    self.logger.log_message(f"Callback executado para message_id {message_id}")
+                except Exception as e:
+                    self.logger.log_error(f"Erro ao executar callback para {message_id}: {e}",
+                                        error_type='media_callback_error',
+                                        message_id=message_id)
+                finally:
+                    # Remover callback após execução
+                    del self._media_callbacks[message_id]
 
 class WhatsAppWorker(QThread):
     """
@@ -697,6 +781,24 @@ class WhatsAppWorker(QThread):
         self.logger.log_message("Mensagem enfileirada no worker",
                               message_id=payload['message_id'],
                               queue_size=self._send_queue.qsize())
+
+    def enqueue_media(self, chat_id: str, file_path: str, caption: str = ""):
+        """Enfileira um comando de envio de mídia para o bridge."""
+        message_id = self._generate_message_id()
+        payload = {
+            "action": "send_media",
+            "chat_id": chat_id,
+            "file_path": os.path.abspath(file_path),  # Enviar caminho absoluto é mais seguro
+            "caption": caption,
+            "message_id": message_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+        self._send_queue.put(payload)
+        self.logger.log_message("Comando de mídia enfileirado no worker",
+                              message_id=message_id,
+                              chat_id=chat_id,
+                              queue_size=self._send_queue.qsize())
+        return message_id
 
     def _start_connection_with_retry(self) -> bool:
         """Inicia conexão com sistema de retry e backoff."""
@@ -955,6 +1057,55 @@ class WhatsAppWorker(QThread):
                 self._handle_log_message(msg)
             elif msg_type == "message_result":
                 self._handle_message_result(msg)
+            elif msg_type == "debug_message":
+                # Processar mensagens de debug do wa_bridge.js
+                debug_data = msg.get("data", {})
+                self.logger.log_message("Debug message received",
+                                      fromJid=debug_data.get('fromJid'),
+                                      isGroup=debug_data.get('isGroup'),
+                                      participant=debug_data.get('participant'),
+                                      senderPn=debug_data.get('senderPn'),
+                                      author=debug_data.get('author'),
+                                      messageId=debug_data.get('id'),
+                                      messageType=debug_data.get('messageType'))
+
+            elif msg_type == "debug_error":
+                # Processar erros de debug do wa_bridge.js
+                error_data = msg.get("data", {})
+                self.logger.log_error(f"Bridge debug error: {error_data.get('error', 'unknown')}",
+                                    error_type='bridge_debug_error',
+                                    fromJid=error_data.get('fromJid'),
+                                    messageId=error_data.get('messageId'),
+                                    messageKeys=error_data.get('messageKeys'))
+
+            elif msg_type == "debug_warning":
+                # Processar avisos de debug do wa_bridge.js
+                warning_data = msg.get("data", {})
+                self.logger.log_error(f"Bridge debug warning: {warning_data.get('warning', 'unknown')}",
+                                    error_type='bridge_debug_warning',
+                                    participant=warning_data.get('participant'),
+                                    fromJid=warning_data.get('fromJid'),
+                                    messageId=warning_data.get('messageId'),
+                                    attempting_fallback=warning_data.get('attempting_fallback'))
+
+            elif msg_type == "debug_info":
+                # Processar informações de debug do wa_bridge.js
+                info_data = msg.get("data", {})
+                self.logger.log_message(f"Bridge debug info: {info_data.get('info', 'unknown')}",
+                                      original_participant=info_data.get('original_participant'),
+                                      fallback_author=info_data.get('fallback_author'),
+                                      fallback_message_participant=info_data.get('fallback_message_participant'),
+                                      fallback_reconstructed=info_data.get('fallback_reconstructed'),
+                                      messageId=info_data.get('messageId'))
+
+            elif msg_type == "debug_success":
+                # Processar sucessos de debug do wa_bridge.js
+                success_data = msg.get("data", {})
+                self.logger.log_message(f"Bridge debug success: {success_data.get('success', 'unknown')}",
+                                      original_participant=success_data.get('original_participant'),
+                                      new_real_author_jid=success_data.get('new_real_author_jid'),
+                                      messageId=success_data.get('messageId'))
+
             elif msg_type == "message":
                 message_data = msg.get("data", {})
                 if message_data and message_data.get('text'):
@@ -987,7 +1138,7 @@ class WhatsAppWorker(QThread):
                         command_text=command_text,
                         manager=self.manager
                     )
-                    
+
                     if responses:
                         for response, recipient in responses:
                             if response and recipient:

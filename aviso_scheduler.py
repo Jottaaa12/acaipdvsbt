@@ -45,8 +45,8 @@ class AvisoScheduler(QObject):
 
         # Mapeamento de dias da semana para o formato usado no config (se necessário)
         day_map = {
-            "mon": "Seg", "tue": "Ter", "wed": "Qua", "thu": "Qui",
-            "fri": "Sex", "sat": "Sáb", "sun": "Dom"
+            "seg": "Seg", "ter": "Ter", "qua": "Qua", "qui": "Qui",
+            "sex": "Sex", "sáb": "Sáb", "dom": "Dom"
         }
         current_day_of_week_pt = day_map.get(current_day_of_week, "")
 

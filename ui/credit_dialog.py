@@ -100,12 +100,12 @@ class CreditDialog(QDialog):
         address, ok = self.getText(self, "Novo Cliente", "Endereço (opcional):")
         if not ok: return
 
-        success, message = add_customer(name, cpf, phone, address)
+        success, result = add_customer(name, cpf, phone, address)
         if success:
-            QMessageBox.information(self, "Sucesso", message)
+            QMessageBox.information(self, "Sucesso", f"Cliente '{name}' adicionado com sucesso!")
             self.on_customer_search_changed(name) # Refresh list and pre-select new customer
         else:
-            QMessageBox.critical(self, "Erro", message)
+            QMessageBox.critical(self, "Erro", result)
 
     def on_confirm(self):
         if not self.selected_customer:

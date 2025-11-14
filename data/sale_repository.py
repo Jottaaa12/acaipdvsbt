@@ -79,10 +79,11 @@ def get_sales_by_period(start_date, end_date):
         
     return sales
 
-def get_sales_with_payment_methods_by_period(start_date, end_date):
+def get_sales_with_payment_methods_by_period(start_date, end_date, limit=100, offset=0):
     """
-    Retorna todas as vendas dentro de um período de datas específico.
+    Retorna vendas dentro de um período de datas específico com paginação.
     Usa uma única consulta otimizada com LEFT JOIN e GROUP_CONCAT.
+    Retorna um dicionário com 'sales' e 'total_count'.
     """
     conn = get_db_connection()
 
@@ -90,8 +91,18 @@ def get_sales_with_payment_methods_by_period(start_date, end_date):
     start_datetime = f'{start_date} 00:00:00'
     end_datetime = f'{end_date} 23:59:59'
 
+    # Consulta para contar o total de vendas
+    count_query = '''
+        SELECT COUNT(*) as total_count
+        FROM sales s
+        WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
+    '''
+    count_row = conn.execute(count_query, (start_datetime, end_datetime)).fetchone()
+    total_count = count_row['total_count']
+
+    # Consulta para buscar vendas com paginação
     query = '''
-        SELECT 
+        SELECT
             s.id, s.sale_date, s.total_amount, s.user_id, s.cash_session_id, s.training_mode,
             s.session_sale_id, s.customer_name,
             u.username,
@@ -103,9 +114,10 @@ def get_sales_with_payment_methods_by_period(start_date, end_date):
         WHERE s.sale_date BETWEEN ? AND ? AND s.training_mode = 0
         GROUP BY s.id
         ORDER BY s.sale_date DESC
+        LIMIT ? OFFSET ?
     '''
 
-    rows = conn.execute(query, (start_datetime, end_datetime)).fetchall()
+    rows = conn.execute(query, (start_datetime, end_datetime, limit, offset)).fetchall()
     conn.close()
 
     sales = []
@@ -115,7 +127,7 @@ def get_sales_with_payment_methods_by_period(start_date, end_date):
         sale['total_amount'] = to_reais(sale['total_amount'])
         sales.append(sale)
 
-    return sales
+    return {'sales': sales, 'total_count': total_count}
 
 def get_items_for_sale(sale_id):
     conn = get_db_connection()
@@ -150,7 +162,7 @@ def get_next_session_sale_id(cash_session_id: int) -> int:
     conn.close()
     return (max_id or 0) + 1
 
-def register_sale_with_user(total_amount, payments, items, change_amount, user_id=None, cash_session_id=None, training_mode=False, customer_name: Optional[str] = None):
+def register_sale_with_user(total_amount, payments, items, change_amount, user_id=None, cash_session_id=None, training_mode=False, customer_name: Optional[str] = None, discount_value=0.0):
     """Registra venda com informações de usuário, sessão, e cliente."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -182,9 +194,9 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
 
         logging.debug(f"Executing INSERT INTO sales with user_id: {user_id}, cash_session_id: {cash_session_id}")
         cursor.execute('''
-            INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode, change_amount, session_sale_id, customer_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (total_amount_cents, user_id, cash_session_id, training_mode, change_amount_cents, session_sale_id, customer_name))
+            INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode, change_amount, session_sale_id, customer_name, discount_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (total_amount_cents, user_id, cash_session_id, training_mode, change_amount_cents, session_sale_id, customer_name, discount_value))
         logging.debug("Finished INSERT INTO sales")
 
         sale_id = cursor.lastrowid
@@ -252,7 +264,8 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
             "total_amount": total_amount,
             "payments": payments,
             "items": items,
-            "change_amount": change_amount
+            "change_amount": change_amount,
+            "discount_value": discount_value
         }
         return True, sale_data
     except sqlite3.Error as e:

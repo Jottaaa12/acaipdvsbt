@@ -128,7 +128,7 @@ class CashClosingDialog(QDialog):
         total_weight_kg = db.get_total_weight_by_cash_session(self.session_id)
 
         expected_cash = initial + cash_sales + supplies - withdrawals
-        
+
         self.expected_summary = {
             "initial": initial,
             "cash_sales": cash_sales,
@@ -140,6 +140,7 @@ class CashClosingDialog(QDialog):
             "total_revenue": report['total_revenue'],
             "total_after_sangria": report['total_after_sangria'],
             "total_weight_kg": total_weight_kg,
+            "total_discounts": report.get('total_discounts', Decimal('0.00')),
             "credit_payments": credit_payments, # Adicionado
             "new_credit_sales": new_credit_sales, # Adicionado
             "all_pending_credit_sales": all_pending_credit_sales # Adicionado
@@ -236,6 +237,7 @@ class CashClosingDialog(QDialog):
         grand_total_lines = (
             f"Faturamento Bruto (Todas Formas): {format_currency(self.expected_summary['total_revenue']).rjust(15)}\n"
             f"Faturamento - Sangrias:         {format_currency(self.expected_summary['total_after_sangria']).rjust(15)}\n"
+            f"Total de Descontos Concedidos:  {format_currency(self.expected_summary['total_discounts']).rjust(15)}\n"
             f"Total de Açaí Vendido (kg):     {format(self.expected_summary.get('total_weight_kg', 0.0), '.3f').rjust(15)}\n"
         )
 

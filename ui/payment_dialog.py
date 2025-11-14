@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QGridLayout, 
-    QWidget, QListWidget, QListWidgetItem, QFrame
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QGridLayout,
+    QWidget, QListWidget, QListWidgetItem, QFrame, QDoubleSpinBox
 )
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence, QDoubleValidator
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -23,6 +23,7 @@ class PaymentDialog(QDialog):
 
         # --- Data Properties ---
         self.total_amount = Decimal(str(total_amount)).quantize(Decimal('0.01'))
+        self.discount_value = Decimal('0.00')
         self.remaining_amount = self.total_amount
         self.payments = []
         self.result_data = None
@@ -46,6 +47,26 @@ class PaymentDialog(QDialog):
         self.total_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.total_label.setObjectName("totalLabel")
         main_layout.addWidget(self.total_label)
+
+        # --- Discount Input ---
+        discount_layout = QHBoxLayout()
+        discount_label = QLabel("Desconto (R$):")
+        discount_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        discount_label.setObjectName("discountLabel")
+
+        self.discount_input = QDoubleSpinBox()
+        self.discount_input.setRange(0.00, float(self.total_amount))
+        self.discount_input.setSingleStep(0.01)
+        self.discount_input.setDecimals(2)
+        self.discount_input.setValue(0.00)
+        self.discount_input.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        self.discount_input.setObjectName("discountInput")
+        self.discount_input.valueChanged.connect(self.on_discount_changed)
+
+        discount_layout.addWidget(discount_label)
+        discount_layout.addWidget(self.discount_input)
+        discount_layout.addStretch()
+        main_layout.addLayout(discount_layout)
 
         # --- Display Remaining and Change ---
         info_layout = QHBoxLayout()
@@ -165,6 +186,10 @@ class PaymentDialog(QDialog):
         # Shortcut for deleting a payment
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self).activated.connect(self.on_remove_payment_clicked)
 
+    def on_discount_changed(self, value):
+        self.discount_value = Decimal(str(value)).quantize(Decimal('0.01'))
+        self.update_display()
+
     def on_credit_sale_clicked(self):
         self.credit_sale_requested.emit()
         self.accept() # Close the payment dialog
@@ -238,8 +263,10 @@ class PaymentDialog(QDialog):
 
     def update_display(self):
         total_paid = sum(p['amount'] for p in self.payments)
-        self.remaining_amount = self.total_amount - total_paid
-        
+        # Calculate remaining amount considering discount: (Total - Discount) - Paid
+        discounted_total = self.total_amount - self.discount_value
+        self.remaining_amount = discounted_total - total_paid
+
         self.payments_list.clear()
         for p in self.payments:
             item = QListWidgetItem(f"{p['method_name']}: R$ {p['amount']:.2f}")
@@ -277,7 +304,9 @@ class PaymentDialog(QDialog):
         self.finalize_button.setText("Processando...")
 
         total_paid = sum(p['amount'] for p in self.payments)
-        change = total_paid - self.total_amount
+        # Calculate change considering discount: paid - (total - discount)
+        discounted_total = self.total_amount - self.discount_value
+        change = total_paid - discounted_total
 
         final_payments = []
         for p in self.payments:
@@ -288,7 +317,8 @@ class PaymentDialog(QDialog):
         self.result_data = {
             'payments': final_payments,
             'total_paid': total_paid,
-            'change': change
+            'change': change,
+            'discount_value': float(self.discount_value)
         }
         self.accept()
 

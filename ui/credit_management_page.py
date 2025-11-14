@@ -86,22 +86,14 @@ class CreditManagementPage(QWidget):
             amounts = [float(item['amount']) for item in evolution]
             self.overdue_evolution_chart.plot(dates, amounts, pen='r', symbol='o')
         self.overdue_evolution_chart.setTitle("Evolução de Vencidos")
-        try:
-            axis = self.overdue_evolution_chart.getAxis('bottom')
-            tick_values_list = axis.tickValues(10, 10)
-            
-            # tickValues can return a list of lists (major/minor). We'll use the first list.
-            if tick_values_list and isinstance(tick_values_list[0], list):
-                tick_values = tick_values_list[0]
-            else:
-                tick_values = tick_values_list
 
-            if tick_values:
-                datetime_objects = [datetime.fromtimestamp(t) for t in tick_values]
-                ticks = [[(d.timestamp(), d.strftime('%d/%m')) for d in datetime_objects]]
-                axis.setTicks(ticks)
+        # Configurar eixo X como data usando DateAxisItem do PyQtGraph
+        try:
+            from pyqtgraph import DateAxisItem
+            date_axis = DateAxisItem(orientation='bottom')
+            self.overdue_evolution_chart.setAxisItems({'bottom': date_axis})
         except Exception as e:
-            logging.warning(f"Could not set date ticks for chart: {e}")
+            logging.warning(f"Could not set date axis for chart: {e}")
 
     def load_credit_sales(self):
         self.update_dashboard() # Atualiza o dashboard sempre que a tabela é carregada

@@ -246,25 +246,27 @@ class PDVApplication:
         # Inicia a verificação de atualização em segundo plano
         self.start_background_update_check()
 
-        if self.current_user.get('role') == 'gerente':
-            try:
-                from integrations.whatsapp_manager import WhatsAppManager
-                
-                logging.info("Iniciando integrações (WhatsApp)...")
-                
-                # Inicia a conexão automática com o WhatsApp
-                whatsapp_manager = WhatsAppManager.get_instance()
-                whatsapp_manager.set_main_window(self.main_window) # Conecta o manager à UI
-                if not whatsapp_manager.is_ready:
-                    whatsapp_manager.connect()
-                
-                # Inicia o agendador de avisos
-                self.aviso_scheduler = AvisoScheduler(whatsapp_manager)
-                self.aviso_scheduler.start_scheduler()
-                logging.info("AvisoScheduler iniciado.")
+        try:
+            from integrations.whatsapp_manager import WhatsAppManager
+            
+            logging.info("Iniciando integrações (WhatsApp)...")
+            
+            # Inicia a conexão automática com o WhatsApp
+            whatsapp_manager = WhatsAppManager.get_instance()
+            whatsapp_manager.set_main_window(self.main_window) # Conecta o manager à UI
+            if not whatsapp_manager.is_ready:
+                whatsapp_manager.connect()
+            
+            # Inicia o agendador de avisos
+            self.aviso_scheduler = AvisoScheduler(whatsapp_manager)
+            self.aviso_scheduler.start_scheduler()
+            logging.info("AvisoScheduler iniciado.")
 
-            except Exception as e:
-                logging.error(f"Erro ao iniciar integrações automáticas: {e}")
+        except Exception as e:
+            logging.error(f"Erro ao iniciar integrações automáticas: {e}")
+
+        if self.current_user.get('role') == 'gerente':
+            pass
     
     def setup_logging(self, log_slot):
         # Configura o sistema de logging
@@ -273,6 +275,8 @@ class PDVApplication:
         log_format = '%(asctime)s - [%(levelname)-8s] - %(message)s (%(filename)s:%(lineno)d)'
         formatter = logging.Formatter(log_format, datefmt='%H:%M:%S')
         log_handler.setFormatter(formatter)
+        # Define o nível do handler QtLogHandler para INFO, evitando sobrecarga na UI com mensagens DEBUG
+        log_handler.setLevel(logging.INFO)
         logging.getLogger().addHandler(log_handler)
         logging.getLogger().setLevel(logging.DEBUG)
         logging.info("Aplicacao iniciada com sucesso.")
@@ -297,6 +301,14 @@ class PDVApplication:
             self.aviso_scheduler.stop_scheduler()
             logging.info("AvisoScheduler parado.")
         # Adicionar outros agendadores aqui, se houver
+
+        # Fecha o pool de conexões do banco de dados
+        try:
+            from data.connection import close_connection_pool
+            close_connection_pool()
+            logging.info("Pool de conexões do banco de dados fechado.")
+        except Exception as e:
+            logging.error(f"Erro ao fechar pool de conexões: {e}")
     def run(self):
         # Executa a aplicacao
         self.show_login()

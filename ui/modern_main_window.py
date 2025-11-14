@@ -1,10 +1,10 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QStackedWidget, QGraphicsDropShadowEffect,
     QStatusBar, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
-    QMessageBox
+    QMessageBox, QApplication
 )
-from PyQt6.QtGui import QFont, QColor, QBrush, QPainter
+from PyQt6.QtGui import QFont, QColor, QBrush, QPainter, QScreen
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QPropertyAnimation, QRect
 from datetime import datetime, timedelta
 import pyqtgraph as pg
@@ -561,7 +561,7 @@ class ModernMainWindow(QMainWindow):
         hardware_mode = self.config.get('hardware_mode', 'test')
         
         self.setWindowTitle(f"PDV Açaí - {current_user['username']}")
-        self.setGeometry(100, 100, 1400, 900)
+        self.adjust_window_geometry()
 
         # Handlers
         self.scale_handler = ScaleHandler(
@@ -611,6 +611,54 @@ class ModernMainWindow(QMainWindow):
         self.check_credit_status() # Checagem inicial
 
         self.show_notification_signal.connect(self.display_notification)
+
+    def adjust_window_geometry(self):
+        """Ajusta a geometria da janela dinamicamente baseada na resolução da tela disponível."""
+        try:
+            # Obtém a tela primária
+            screen = self.screen()
+            if not screen:
+                # Fallback para tela primária da aplicação
+                app = QApplication.instance()
+                if app:
+                    screen = app.primaryScreen()
+
+            if screen:
+                # Obtém a geometria disponível (excluindo barra de tarefas)
+                available_geometry = screen.availableGeometry()
+
+                # Calcula tamanho ideal da janela (75% da largura e 70% da altura disponíveis)
+                # Usamos porcentagens menores para garantir que caiba considerando margens da janela
+                ideal_width = int(available_geometry.width() * 0.75)
+                ideal_height = int(available_geometry.height() * 0.7)
+
+                # Define limites mínimos e máximos mais conservadores
+                min_width = 1200
+                min_height = 700
+                max_width = available_geometry.width() - 200  # Margem maior de 200px
+                max_height = available_geometry.height() - 150  # Margem maior de 150px
+
+                # Aplica limites
+                width = max(min_width, min(ideal_width, max_width))
+                height = max(min_height, min(ideal_height, max_height))
+
+                # Centraliza a janela na tela
+                x = (available_geometry.width() - width) // 2 + available_geometry.x()
+                y = (available_geometry.height() - height) // 2 + available_geometry.y()
+
+                # Define a geometria
+                self.setGeometry(x, y, width, height)
+
+                logging.info(f"Janela ajustada dinamicamente: {width}x{height} em ({x},{y}) - Tela disponível: {available_geometry.width()}x{available_geometry.height()}")
+            else:
+                # Fallback para geometria padrão se não conseguir obter informações da tela
+                logging.warning("Não foi possível obter informações da tela. Usando geometria padrão.")
+                self.setGeometry(100, 100, 1200, 700)
+
+        except Exception as e:
+            logging.error(f"Erro ao ajustar geometria da janela: {e}. Usando geometria padrão.")
+            # Fallback seguro com tamanho menor
+            self.setGeometry(100, 100, 1200, 700)
 
     def show_update_notification(self, version, description):
         """Exibe uma notificação de que uma nova atualização está disponível."""
@@ -818,8 +866,12 @@ class ModernMainWindow(QMainWindow):
     def change_page(self, page_name):
         """Muda para a página especificada"""
         if page_name in self.pages:
+            # Chama a atualização ANTES de exibir se for a página de histórico
+            if page_name == "sales_history":
+                self.pages["sales_history"].refresh_if_needed()
+
             self.content_area.setCurrentWidget(self.pages[page_name])
-            
+
             if page_name == "dashboard":
                 self.pages["dashboard"].update_dashboard_data(self.current_cash_session)
 
@@ -836,7 +888,7 @@ class ModernMainWindow(QMainWindow):
                 "cash": "cash",
                 "settings": "settings"
             }
-            
+
             if page_name in page_map:
                 button_key = page_map[page_name]
                 if button_key in self.sidebar.menu_buttons:

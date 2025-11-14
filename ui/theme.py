@@ -467,6 +467,8 @@ class ModernTheme:
             }}
             QLabel#changeLabel[status=\"success\"] {{
                 background-color: {ModernTheme.SUCCESS_LIGHT};
+                color: {ModernTheme.WHITE};
+                font-weight: bold;
             }}
             QLineEdit {{
                 background-color: {ModernTheme.DARK_LIGHT};
@@ -484,9 +486,11 @@ class ModernTheme:
             }}
             QListWidget::item {{
                 padding: 8px;
+                color: {ModernTheme.WHITE};
             }}
             QListWidget::item:alternate {{
                 background-color: #3a5064;
+                color: {ModernTheme.WHITE};
             }}
             
             /* --- Modern Payment Buttons --- */
@@ -494,10 +498,11 @@ class ModernTheme:
                 background-color: {ModernTheme.DARK_LIGHT};
                 color: {ModernTheme.WHITE};
                 border: 2px solid {ModernTheme.GRAY};
-                padding: 20px;
+                padding: 15px;
                 border-radius: 8px;
                 font-weight: bold;
                 font-size: 16px;
+                min-height: 45px;
             }}
             QPushButton#paymentMethodButton:hover {{
                 background-color: {ModernTheme.GRAY};
@@ -544,15 +549,18 @@ class ModernTheme:
                 background-color: {ModernTheme.ERROR_LIGHT};
             }}
             QPushButton#creditSaleButton {{
-                background-color: {ModernTheme.WARNING};
-                border: none;
+                background-color: {ModernTheme.DARK_LIGHT};
+                color: {ModernTheme.WHITE};
+                border: 2px solid {ModernTheme.GRAY};
                 font-size: 16px;
                 padding: 15px;
                 border-radius: 8px;
                 font-weight: bold;
+                min-height: 45px;
             }}
             QPushButton#creditSaleButton:hover {{
-                background-color: {ModernTheme.SECONDARY_LIGHT};
+                background-color: {ModernTheme.GRAY};
+                border-color: #5b7d9c;
             }}
             QPushButton:disabled {{
                 background-color: {ModernTheme.GRAY};

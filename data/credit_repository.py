@@ -428,3 +428,36 @@ def get_customer_by_phone(phone):
     customer['credit_limit'] = to_reais(customer['credit_limit'])
     return customer
 
+def update_credit_sale_amount(credit_sale_id, new_amount, user_id):
+    """Atualiza o valor total de uma venda a crédito."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        new_amount_cents = to_cents(Decimal(str(new_amount)))
+
+        # Verificar se a venda existe
+        cursor.execute('SELECT id FROM credit_sales WHERE id = ?', (credit_sale_id,))
+        if not cursor.fetchone():
+            return False, "Venda a crédito não encontrada."
+
+        # Atualizar apenas o amount (balance_due é calculado dinamicamente)
+        cursor.execute('''
+            UPDATE credit_sales
+            SET amount = ?, sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END
+            WHERE id = ?
+        ''', (new_amount_cents, credit_sale_id))
+
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            log_audit(user_id, 'UPDATE_CREDIT_AMOUNT', 'credit_sales', credit_sale_id, new_values=f"Novo valor: {new_amount}")
+            return True, "Valor da venda a crédito atualizado com sucesso."
+        else:
+            return False, "Venda a crédito não encontrada."
+
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Erro de banco de dados: {e}"
+    finally:
+        conn.close()
