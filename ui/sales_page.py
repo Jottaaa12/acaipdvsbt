@@ -16,6 +16,7 @@ from hardware.printer_handler import PrinterHandler
 from ui.payment_dialog import PaymentDialog
 from ui.credit_dialog import CreditDialog
 from ui.product_search_dialog import ProductSearchDialog
+from ui.held_sales_dialog import HeldSalesDialog
 from ui.theme import ModernTheme
 from utils import get_data_path
 import logging
@@ -680,24 +681,25 @@ class SalesPage(QWidget):
             self.update_sale_display()
 
     def hold_current_sale(self):
-        """Salva a venda atual em espera."""
+        """Salva a venda atual em espera usando o diálogo moderno."""
         if not self.current_sale_items:
+            QMessageBox.information(self, "Venda Vazia", "Não há itens na venda atual para salvar.")
             return False
-        
-        identifier, ok = QInputDialog.getText(self, "Salvar Venda", 
-                                              "Digite o nome ou número da comanda:", 
-                                              text=f"Comanda {len(self.held_sales) + 1}")
-        
-        if ok and identifier:
+
+        # Usar o novo diálogo moderno
+        result = HeldSalesDialog.show_hold_dialog(self.current_sale_items, self.held_sales, self)
+        if result and result['action'] == 'hold':
+            identifier = result['identifier']
             self.held_sales[identifier] = self.current_sale_items.copy()
             self.current_sale_items.clear()
             self.current_sale_customer_name = None # Limpa o cliente ao salvar
             self.update_sale_display()
+            QMessageBox.information(self, "Venda Salva", f"Venda salva com o identificador: '{identifier}'")
             return True
         return False
 
     def resume_held_sale(self):
-        """Recupera uma venda em espera."""
+        """Recupera uma venda em espera usando o diálogo moderno."""
         if not self.held_sales:
             QMessageBox.information(self, "Sem Vendas em Espera", "Não há vendas salvas.")
             return
@@ -720,14 +722,15 @@ class SalesPage(QWidget):
             else: # Cancelar
                 return
 
-        items = list(self.held_sales.keys())
-        identifier, ok = QInputDialog.getItem(self, "Recuperar Venda", "Selecione a venda para reabrir:", items, 0, False)
-        
-        if ok and identifier:
-            self.current_sale_items = self.held_sales[identifier]
-            self.current_sale_customer_name = identifier # Define o cliente
-            del self.held_sales[identifier]
+        # Usar o novo diálogo moderno
+        result = HeldSalesDialog.show_resume_dialog(self.held_sales, self)
+        if result and result['action'] == 'resume':
+            sale_key = result['sale_key']
+            self.current_sale_items = self.held_sales[sale_key]
+            self.current_sale_customer_name = sale_key # Define o cliente
+            del self.held_sales[sale_key]
             self.update_sale_display()
+            QMessageBox.information(self, "Venda Recuperada", f"Venda '{sale_key}' recuperada com sucesso!")
 
     def force_scale_reconnect(self):
         """Força a tentativa de reconexão da balança."""
