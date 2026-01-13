@@ -407,7 +407,8 @@ def get_cash_session_history(start_date, end_date, operator_id=None):
     conn = get_db_connection()
     
     query = '''
-        SELECT cs.id, u.username, cs.close_time, cs.difference
+        SELECT cs.id, u.username, cs.open_time, cs.close_time, cs.initial_amount, 
+               cs.final_amount, cs.expected_amount, cs.difference
         FROM cash_sessions cs
         LEFT JOIN users u ON cs.user_id = u.id
         WHERE cs.status = 'closed'
@@ -430,8 +431,16 @@ def get_cash_session_history(start_date, end_date, operator_id=None):
     history = []
     for row in rows:
         session = dict(row)
-        session['difference'] = to_reais(session['difference'])
+        session['open_time'] = _parse_datetime(session['open_time'])
         session['close_time'] = _parse_datetime(session['close_time'])
+        
+        # Converte valores monetários
+        for field in ['initial_amount', 'final_amount', 'expected_amount', 'difference']:
+            if session.get(field) is not None:
+                session[field] = to_reais(session[field])
+            else:
+                session[field] = 0.0
+                
         history.append(session)
         
     return history

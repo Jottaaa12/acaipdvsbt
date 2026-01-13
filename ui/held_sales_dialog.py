@@ -13,12 +13,13 @@ import logging
 class HeldSalesDialog(QDialog):
     """Diálogo moderno para gerenciar vendas em espera (comandas)"""
 
-    def __init__(self, held_sales, mode="resume", parent=None):
+    def __init__(self, held_sales, mode="resume", parent=None, suggested_name=None):
         """
         Args:
             held_sales: dict com as vendas em espera
             mode: "hold" para salvar venda, "resume" para recuperar
             parent: widget pai
+            suggested_name: nome sugerido para a venda (apenas para modo hold)
         """
         super().__init__(parent)
         self.held_sales = held_sales
@@ -43,10 +44,12 @@ class HeldSalesDialog(QDialog):
         if mode == "hold":
             # Configurar campo de entrada com placeholder inteligente
             if hasattr(self, 'identifier_input'):
-                self.identifier_input.setText(self.default_identifier)
+                # Usar nome sugerido se disponível, senão usar padrão
+                initial_name = suggested_name if suggested_name else self.default_identifier
+                self.identifier_input.setText(initial_name)
                 self.identifier_input.selectAll()  # Selecionar todo o texto para facilitar substituição
                 self.identifier_input.setFocus()
-                self.new_sale_identifier = self.default_identifier  # Definir valor inicial
+                self.new_sale_identifier = initial_name  # Definir valor inicial
                 if self.save_button:
                     self.save_button.setEnabled(True)  # Habilitar botão já que tem texto padrão
 
@@ -509,9 +512,9 @@ class HeldSalesDialog(QDialog):
         return None
 
     @staticmethod
-    def show_hold_dialog(items, held_sales, parent=None):
+    def show_hold_dialog(items, held_sales, parent=None, suggested_name=None):
         """Método estático para mostrar diálogo de salvamento"""
-        dialog = HeldSalesDialog(held_sales, mode="hold", parent=parent)
+        dialog = HeldSalesDialog(held_sales, mode="hold", parent=parent, suggested_name=suggested_name)
         dialog.new_sale_items = items
         dialog.update_display()
         if dialog.exec() == QDialog.DialogCode.Accepted:

@@ -46,7 +46,7 @@ class StatusCommand(ManagerCommand):
                         last_check_str = f"{int(diff_minutes)}min atrás"
                     else:
                         last_check_str = last_check.strftime('%H:%M:%S')
-                except:
+                except (ValueError, TypeError):
                     last_check_str = "Erro na formatação"
 
             # Estatísticas adicionais se disponíveis
@@ -342,8 +342,8 @@ class LogsCommand(ManagerCommand):
                         try:
                             hour = datetime.fromisoformat(timestamp).hour
                             hourly_distribution[hour] = hourly_distribution.get(hour, 0) + 1
-                        except:
-                            pass
+                        except (ValueError, TypeError):
+                            pass  # Ignora timestamps inválidos
 
                 except (json.JSONDecodeError, AttributeError):
                     continue

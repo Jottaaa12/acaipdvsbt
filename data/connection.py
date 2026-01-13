@@ -34,8 +34,8 @@ class DatabaseConnectionPool:
                 if current_time - created_time > self.connection_timeout:
                     try:
                         conn.close()
-                    except:
-                        pass
+                    except Exception as e:
+                        logging.debug(f"Erro ao fechar conexão expirada: {e}")
                     self._pool.remove(conn_info)
                     self._connection_count -= 1
                     continue
@@ -79,8 +79,8 @@ class DatabaseConnectionPool:
             for conn_info in self._pool:
                 try:
                     conn_info[0].close()
-                except:
-                    pass
+                except Exception as e:
+                    logging.debug(f"Erro ao fechar conexão do pool: {e}")
             self._pool.clear()
             self._connection_count = 0
             logging.debug("DatabaseConnectionPool: Todas as conexões fechadas")

@@ -13,11 +13,13 @@ escpos_datas = collect_data_files('escpos')
 
 # [NOTA] Coleta todos os submódulos dos pacotes da aplicação.
 # Adicionado 'data' para garantir que todos os módulos de acesso a dados sejam incluídos.
+# Adicionado 'yoyo' para migrações de banco de dados.
 hidden_imports_from_submodules = (
     collect_submodules('ui') +
     collect_submodules('hardware') +
     collect_submodules('integrations') +
-    collect_submodules('data')  # ADICIONADO
+    collect_submodules('data') +  # ADICIONADO
+    collect_submodules('yoyo')    # ADICIONADO - Migrações de BD
 )
 
 a = Analysis(
@@ -63,6 +65,7 @@ a = Analysis(
         'utils',
         'config_manager',
         'yoyo',
+        'sqlite3',
         # --- Dependências complexas que podem ser perdidas ---
         'flask',
         'supabase',

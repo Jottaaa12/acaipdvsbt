@@ -100,6 +100,11 @@ class CreditDialog(QDialog):
         address, ok = self.getText(self, "Novo Cliente", "Endereço (opcional):")
         if not ok: return
 
+        # Converter strings vazias para None para evitar violação de constraint UNIQUE
+        cpf = cpf.strip() if cpf and cpf.strip() else None
+        phone = phone.strip() if phone and phone.strip() else None
+        address = address.strip() if address and address.strip() else None
+
         success, result = add_customer(name, cpf, phone, address)
         if success:
             QMessageBox.information(self, "Sucesso", f"Cliente '{name}' adicionado com sucesso!")

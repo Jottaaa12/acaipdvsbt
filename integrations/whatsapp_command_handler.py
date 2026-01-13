@@ -160,11 +160,14 @@ class CommandHandler:
             else:
                 sender_phone_clean = jid_without_suffix
 
+        # LOG DE ENTRADA DO COMANDO para facilitar debug futuro
+        logging.info(f"Processando comando '{command_text}' recebido de: {user_id} (Chat: {chat_id})")
+
         # A verificação agora usa a lista limpa em cache, baseada no autor da mensagem.
         if not sender_phone_clean or sender_phone_clean not in self.authorized_managers:
-            logging.warning(f"Comando de número não autorizado foi ignorado: {sender_phone_clean} (Lista de autorizados: {self.authorized_managers})")
+            logging.warning(f"Comando de número não autorizado foi ignorado: {sender_phone_clean}. (Autor original: {user_id}). Lista de autorizados: {self.authorized_managers}")
             # Log de tentativa de comando não autorizado
-            manager.logger.log_command(sender=sender_phone_with_suffix, command=command_text, success=False, response_preview="Acesso negado")
+            manager.logger.log_command(sender=sender_phone_with_suffix, command=command_text, success=False, response_preview="Acesso negado - Número não autorizado")
             return []
 
         parts = command_text.split()

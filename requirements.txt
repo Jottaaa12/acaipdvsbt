@@ -8,6 +8,7 @@ qrcode[pil]
 pytz
 Flask
 supabase
+yoyo-migrations
 mss
 opencv-python
 sounddevice

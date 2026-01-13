@@ -12,7 +12,10 @@ def register_sale(total_amount, payment_method, items):
     cursor = conn.cursor()
     try:
         total_amount_cents = to_cents(total_amount)
-        cursor.execute('INSERT INTO sales (total_amount, payment_method) VALUES (?, ?)', (total_amount_cents, payment_method))
+        # Corrige problema de timezone: usa horário local
+        from datetime import datetime
+        sale_date_local = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute('INSERT INTO sales (sale_date, total_amount, payment_method) VALUES (?, ?, ?)', (sale_date_local, total_amount_cents, payment_method))
         sale_id = cursor.lastrowid
         for item in items:
             unit_price_cents = to_cents(item['unit_price'])
@@ -162,10 +165,15 @@ def get_next_session_sale_id(cash_session_id: int) -> int:
     conn.close()
     return (max_id or 0) + 1
 
-def register_sale_with_user(total_amount, payments, items, change_amount, user_id=None, cash_session_id=None, training_mode=False, customer_name: Optional[str] = None, discount_value=0.0):
-    """Registra venda com informações de usuário, sessão, e cliente."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def register_sale_with_user(total_amount, payments, items, change_amount, user_id=None, cash_session_id=None, training_mode=False, customer_name: Optional[str] = None, discount_value=0.0, cursor=None):
+    """Registra venda com informações de usuário, sessão, e cliente. Suporta transações externas via cursor."""
+    manage_transaction = cursor is None
+    conn = None
+    
+    if manage_transaction:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
     try:
         # Garante que os valores finais sejam inteiros
         total_amount_cents = int(to_cents(total_amount))
@@ -189,14 +197,30 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
             logging.debug("cash_session_id is valid")
 
         # Nova lógica para o ID da sessão
-        session_sale_id = get_next_session_sale_id(cash_session_id)
+        # Precisamos recalcular aqui se estamos numa transação? Sim, pois o cursor tem o contexto.
+        # Porém, get_next_session_sale_id abre sua própria conexão. 
+        # Idealmente deveríamos passar o cursor para get_next_session_sale_id também, 
+        # mas por hora, vamos manter simples pois é apenas leitura antes do insert.
+        # Mas espere, se estamos numa transação e acabamos de inserir uma venda na sessão, 
+        # a leitura isolada pode não ver. 
+        # Vamos fazer a query diretamente aqui usando o cursor atual para garantir consistência.
+        
+        cursor.execute("SELECT MAX(session_sale_id) FROM sales WHERE cash_session_id = ?", (cash_session_id,))
+        max_id_row = cursor.fetchone()
+        max_id = max_id_row[0] if max_id_row else 0
+        session_sale_id = (max_id or 0) + 1
+        
         logging.debug(f"Next session_sale_id: {session_sale_id}")
 
-        logging.debug(f"Executing INSERT INTO sales with user_id: {user_id}, cash_session_id: {cash_session_id}")
+        # Corrige problema de timezone: usa horário local ao invés de UTC
+        from datetime import datetime
+        sale_date_local = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        logging.debug(f"Executing INSERT INTO sales with user_id: {user_id}, cash_session_id: {cash_session_id}, sale_date: {sale_date_local}")
         cursor.execute('''
-            INSERT INTO sales (total_amount, user_id, cash_session_id, training_mode, change_amount, session_sale_id, customer_name, discount_value)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (total_amount_cents, user_id, cash_session_id, training_mode, change_amount_cents, session_sale_id, customer_name, discount_value))
+            INSERT INTO sales (sale_date, total_amount, user_id, cash_session_id, training_mode, change_amount, session_sale_id, customer_name, discount_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (sale_date_local, total_amount_cents, user_id, cash_session_id, training_mode, change_amount_cents, session_sale_id, customer_name, discount_value))
         logging.debug("Finished INSERT INTO sales")
 
         sale_id = cursor.lastrowid
@@ -230,6 +254,9 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
                 # Verifica se há estoque suficiente
                 logging.debug(f"Checking stock for product_id {item['id']}")
                 stock_check = cursor.execute('SELECT stock FROM products WHERE id = ?', (item['id'],)).fetchone()
+                # Nota: Em uma transação, isso vê as alterações pendentes da própria transação? 
+                # Sim, na mesma conexão vê.
+                
                 if stock_check and stock_check[0] < item['quantity']:
                     raise sqlite3.Error(f"Estoque insuficiente para o produto: {item['description']}")
                 logging.debug("Stock is sufficient")
@@ -249,12 +276,21 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
                 VALUES (?, ?, ?)
             ''', (sale_id, payment['method'], payment_amount_cents))
 
-        logging.debug("Committing transaction")
-        conn.commit()
-        logging.debug("Transaction committed")
+        if manage_transaction:
+            logging.debug("Committing transaction")
+            conn.commit()
+            logging.debug("Transaction committed")
 
         if user_id:
-            log_audit(user_id, 'SALE', 'sales', sale_id)
+            # Audit log geralmente usa sua própria conexão em log_audit, 
+            # não vamos misturar para não complicar, a menos que seja crítico.
+            # Se a transação falhar depois, o log existirá mas a venda não.
+            # Para auditoria perfeita, log_audit tambem deveria aceitar cursor,
+            # mas vamos aceitar esse pequeno risco por enquanto para simplificar.
+            try:
+                log_audit(user_id, 'SALE', 'sales', sale_id)
+            except Exception as e:
+                logging.warning(f"Failed to log audit for sale {sale_id}: {e}")
 
         # Retorna um dicionário com os dados da venda para a notificação
         sale_data = {
@@ -269,7 +305,12 @@ def register_sale_with_user(total_amount, payments, items, change_amount, user_i
         }
         return True, sale_data
     except sqlite3.Error as e:
-        conn.rollback()
+        if manage_transaction and conn:
+            conn.rollback()
+        # Se gerenciado externamente, a exceção sobe e quem chamou faz rollback
+        if not manage_transaction:
+            raise e
         return False, {"error": f"Erro ao registrar a venda: {e}"}
     finally:
-        conn.close()
+        if manage_transaction and conn:
+            conn.close()

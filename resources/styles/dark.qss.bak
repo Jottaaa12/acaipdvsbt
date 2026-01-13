@@ -1,0 +1,930 @@
+/* === VARIÁVEIS (Substituídas pelo ThemeManager) === */
+/* 
+  @PRIMARY_DARK = #3730a3
+  @PRIMARY = #6366f1
+  @PRIMARY_LIGHT = #818cf8
+  @PRIMARY_LIGHTEST = #312e81
+  @SECONDARY = #f59e0b
+  @SECONDARY_DARK = #b45309
+  @DARK = #f3f4f6
+  @GRAY = #9ca3af
+  @GRAY_LIGHT = #374151
+  @GRAY_LIGHTER = #111827
+  @WHITE = #1f2937
+  @SUCCESS = #10b981
+  @ERROR = #ef4444
+*/
+
+/* === APLICAÇÃO PRINCIPAL === */
+QMainWindow {
+    background-color: @GRAY_LIGHTER;
+    color: @DARK;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+QWidget {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: @DARK;
+}
+
+/* === SIDEBAR === */
+QFrame#sidebar {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e1b4b, stop:1 #312e81);
+    border: none;
+    border-radius: 0px;
+    border-right: 1px solid @GRAY_LIGHT;
+}
+
+QFrame#sidebar_collapsed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e1b4b, stop:1 #312e81);
+    border: none;
+    border-radius: 0px;
+    max-width: 60px;
+    border-right: 1px solid @GRAY_LIGHT;
+}
+
+/* === BOTÕES SIDEBAR === */
+QPushButton#sidebar_button {
+    background-color: transparent;
+    color: @GRAY;
+    border: none;
+    padding: 10px 15px;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    margin: 2px 8px;
+}
+
+QPushButton#sidebar_button:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: @DARK;
+}
+
+QPushButton#sidebar_button:pressed {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+QPushButton#sidebar_button[active="true"] {
+    background-color: @PRIMARY;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* === CARDS === */
+QFrame#card {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+QFrame#card_shadow {
+    background-color: @WHITE;
+    border: none;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+QFrame#metricCard {
+    background-color: @WHITE;
+    border: none;
+    border-radius: 12px;
+}
+
+/* === BOTÕES MODERNOS === */
+QPushButton#modern_button_primary {
+    background-color: @PRIMARY;
+    color: @WHITE;
+    border: 1px solid @PRIMARY_DARK;
+    padding: 8px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 20px;
+}
+
+QPushButton#modern_button_primary:hover {
+    background-color: @PRIMARY_LIGHT;
+}
+
+QPushButton#modern_button_primary:pressed {
+    background-color: @PRIMARY_DARK;
+}
+
+QPushButton#modern_button_secondary {
+    background-color: @SECONDARY;
+    color: @WHITE;
+    border: 1px solid @SECONDARY_DARK;
+    padding: 8px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 20px;
+}
+
+QPushButton#modern_button_secondary:hover {
+    background-color: @SECONDARY_DARK;
+}
+
+QPushButton#modern_button_outline {
+    background-color: transparent;
+    color: @PRIMARY_LIGHT;
+    border: 2px solid @PRIMARY_LIGHT;
+    padding: 8px 22px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 20px;
+}
+
+QPushButton#modern_button_outline:hover {
+    background-color: @PRIMARY_LIGHT;
+    color: #ffffff;
+}
+
+QPushButton#modern_button_error {
+    background-color: @ERROR;
+    color: #ffffff;
+    border: none;
+    padding: 8px 22px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 20px;
+}
+
+QPushButton#modern_button_error:hover {
+    background-color: #d02d2d;
+}
+
+/* === INPUTS MODERNOS === */
+QLineEdit#modern_input {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    color: @DARK;
+    min-height: 20px;
+}
+
+QLineEdit#modern_input:focus {
+    border-color: @PRIMARY;
+    background-color: @GRAY_LIGHTER;
+}
+
+QComboBox#modern_combo {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    color: @DARK;
+    min-height: 20px;
+}
+
+QComboBox#modern_combo:focus {
+    border-color: @PRIMARY;
+}
+
+QComboBox#modern_combo::drop-down {
+    border: none;
+    width: 30px;
+}
+
+QComboBox#modern_combo::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid @GRAY;
+    margin-right: 10px;
+}
+
+/* === INPUTS GENÉRICOS (para elementos sem objectName específico) === */
+QLineEdit {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: @DARK;
+}
+
+QLineEdit:focus {
+    border-color: @PRIMARY;
+}
+
+QLineEdit:disabled {
+    background-color: @GRAY_LIGHT;
+    color: @GRAY;
+}
+
+/* === SPINBOX / DOUBLE SPINBOX === */
+QSpinBox, QDoubleSpinBox {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: @DARK;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: @PRIMARY;
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    background-color: @GRAY_LIGHT;
+    border: none;
+    width: 20px;
+}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: @GRAY;
+}
+
+/* === DATE EDIT === */
+QDateEdit, QTimeEdit, QDateTimeEdit {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: @DARK;
+}
+
+QDateEdit:focus, QTimeEdit:focus, QDateTimeEdit:focus {
+    border-color: @PRIMARY;
+}
+
+QDateEdit::drop-down, QTimeEdit::drop-down, QDateTimeEdit::drop-down {
+    background-color: @GRAY_LIGHT;
+    border: none;
+    width: 25px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+QCalendarWidget {
+    background-color: @WHITE;
+    color: @DARK;
+}
+
+QCalendarWidget QToolButton {
+    background-color: @GRAY_LIGHT;
+    color: @DARK;
+    border: none;
+    padding: 6px;
+    border-radius: 4px;
+}
+
+QCalendarWidget QToolButton:hover {
+    background-color: @PRIMARY;
+    color: #ffffff;
+}
+
+QCalendarWidget QMenu {
+    background-color: @WHITE;
+    color: @DARK;
+}
+
+QCalendarWidget QSpinBox {
+    background-color: @GRAY_LIGHTER;
+    color: @DARK;
+}
+
+QCalendarWidget QWidget#qt_calendar_navigationbar {
+    background-color: @GRAY_LIGHT;
+}
+
+/* === COMBOBOX GENÉRICO === */
+QComboBox {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: @DARK;
+    min-height: 20px;
+}
+
+QComboBox:focus {
+    border-color: @PRIMARY;
+}
+
+QComboBox::drop-down {
+    background-color: @GRAY_LIGHT;
+    border: none;
+    width: 25px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid @GRAY;
+}
+
+QComboBox QAbstractItemView {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    selection-background-color: @PRIMARY;
+    selection-color: #ffffff;
+    color: @DARK;
+}
+
+/* === BOTÕES GENÉRICOS === */
+QPushButton {
+    background-color: @GRAY_LIGHT;
+    color: @DARK;
+    border: 1px solid @GRAY;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+QPushButton:hover {
+    background-color: @GRAY;
+    border-color: @PRIMARY;
+}
+
+QPushButton:pressed {
+    background-color: @GRAY_LIGHTER;
+}
+
+QPushButton:disabled {
+    background-color: @GRAY_LIGHTER;
+    color: @GRAY;
+    border-color: @GRAY_LIGHT;
+}
+
+/* === TAB WIDGET === */
+QTabWidget::pane {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    margin-top: -1px;
+}
+
+QTabBar::tab {
+    background-color: @GRAY_LIGHT;
+    color: @GRAY;
+    border: 1px solid @GRAY_LIGHT;
+    padding: 10px 20px;
+    margin-right: 2px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+QTabBar::tab:selected {
+    background-color: @WHITE;
+    color: @PRIMARY;
+    border-bottom-color: @WHITE;
+    font-weight: 600;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: @GRAY;
+    color: @DARK;
+}
+
+/* === LABELS === */
+QLabel {
+    color: @DARK;
+    font-size: 14px;
+}
+
+QLabel#title {
+    color: @DARK;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+QLabel#subtitle {
+    color: @GRAY;
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 20px;
+}
+
+QLabel#card_title {
+    color: @DARK;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+QLabel#metric_value {
+    color: @PRIMARY_LIGHT;
+    font-size: 32px;
+    font-weight: 700;
+}
+
+QLabel#metric_label {
+    color: @GRAY;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+QLabel#logoLabel {
+    font-size: 32px;
+}
+
+QLabel#dashboardTitleLabel {
+    color: @PRIMARY_LIGHT;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+QFrame#sidebarSeparator {
+    background-color: @GRAY_LIGHT;
+    height: 1px;
+}
+
+QLabel#metricIcon {
+    font-size: 24px;
+}
+
+QLabel#metricValue {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+QLabel#metricLabel {
+    color: @GRAY;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QLabel#form_label {
+    color: @DARK;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+QLabel#total_label {
+    color: @PRIMARY_LIGHT;
+    font-size: 48px;
+    font-weight: 700;
+}
+
+QLabel#sale_name_label {
+    font-weight: bold;
+    color: #60a5fa; /* Azul claro para dark mode */
+}
+
+/* === TABELAS === */
+QTableWidget {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    gridline-color: @GRAY_LIGHT;
+    font-size: 14px;
+    color: @DARK;
+}
+
+QTableWidget::item {
+    padding: 12px 8px;
+    border-bottom: 1px solid @GRAY_LIGHT;
+    color: @DARK;
+}
+
+QTableWidget::item:selected {
+    background-color: @PRIMARY_LIGHTEST;
+    color: #ffffff;
+}
+
+QHeaderView::section {
+    background-color: @WHITE;
+    color: @GRAY;
+    padding: 12px 8px;
+    border: none;
+    border-bottom: 2px solid @GRAY_LIGHT;
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+/* === STATUS BAR === */
+QStatusBar {
+    background-color: @WHITE;
+    color: @DARK;
+    border-top: 1px solid @GRAY_LIGHT;
+    font-size: 12px;
+    padding: 5px;
+}
+
+QStatusBar QLabel {
+    color: @DARK;
+    padding: 5px 10px;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+/* === GROUPBOX === */
+QGroupBox {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    margin-top: 15px;
+    padding: 10px;
+    font-size: 14px;
+    color: @DARK;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 10px;
+    left: 10px;
+    color: @PRIMARY_LIGHT;
+    font-weight: bold;
+}
+
+QFrame#dashboardContentContainer {
+    background-color: @GRAY_LIGHTER;
+}
+
+ModernDashboard {
+    background-color: transparent;
+}
+
+QLabel#dashboardTitle {
+    color: @DARK;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+QLabel#dashboardSubtitle {
+    color: @GRAY;
+    font-size: 16px;
+}
+
+QTableWidget#dashboardTable {
+    border: none;
+    background-color: @WHITE;
+}
+
+QHeaderView#dashboardHeader::section {
+    background-color: @GRAY_LIGHTER;
+    padding: 4px;
+    border: none;
+    font-weight: bold;
+    color: @DARK;
+}
+
+QLabel#dashboardStatusLabel {
+    font-size: 14px;
+}
+
+/* === SCROLLBAR === */
+QScrollBar:vertical {
+    border: none;
+    background: @GRAY_LIGHTER;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: @GRAY_LIGHT;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical {
+    height: 0px;
+}
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: @GRAY_LIGHTER;
+    height: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: @GRAY_LIGHT;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:horizontal {
+    width: 0px;
+}
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* === TOOL BUTTON === */
+QToolButton {
+    background-color: @GRAY_LIGHT;
+    color: @DARK;
+    border: 1px solid @GRAY;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+QToolButton:hover {
+    background-color: @GRAY;
+    border-color: @PRIMARY;
+}
+
+QToolButton:pressed {
+    background-color: @GRAY_LIGHTER;
+}
+
+/* === MENUS === */
+QMenu {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    padding: 5px;
+}
+
+QMenu::item {
+    background-color: transparent;
+    color: @DARK;
+    padding: 8px 25px;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background-color: @PRIMARY;
+    color: #ffffff;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: @GRAY_LIGHT;
+    margin: 5px 10px;
+}
+
+/* === LIST WIDGET === */
+QListWidget {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    color: @DARK;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid @GRAY_LIGHT;
+}
+
+QListWidget::item:selected {
+    background-color: @PRIMARY;
+    color: #ffffff;
+}
+
+QListWidget::item:hover:!selected {
+    background-color: @GRAY_LIGHTER;
+}
+
+/* === TEXT EDIT / PLAIN TEXT EDIT === */
+QTextEdit, QPlainTextEdit {
+    background-color: @GRAY_LIGHTER;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 6px;
+    padding: 8px;
+    color: @DARK;
+    font-size: 13px;
+}
+
+QTextEdit:focus, QPlainTextEdit:focus {
+    border-color: @PRIMARY;
+}
+
+/* === DIALOG === */
+QDialog {
+    background-color: @WHITE;
+    color: @DARK;
+}
+
+/* === CHECKBOX === */
+QCheckBox {
+    color: @DARK;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid @GRAY;
+    background-color: @GRAY_LIGHTER;
+}
+
+QCheckBox::indicator:checked {
+    background-color: @PRIMARY;
+    border-color: @PRIMARY;
+}
+
+QCheckBox::indicator:hover {
+    border-color: @PRIMARY;
+}
+
+/* === RADIO BUTTON === */
+QRadioButton {
+    color: @DARK;
+    spacing: 8px;
+}
+
+QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    border: 2px solid @GRAY;
+    background-color: @GRAY_LIGHTER;
+}
+
+QRadioButton::indicator:checked {
+    background-color: @PRIMARY;
+    border-color: @PRIMARY;
+}
+
+/* === SLIDER === */
+QSlider::groove:horizontal {
+    height: 6px;
+    background-color: @GRAY_LIGHT;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    background-color: @PRIMARY;
+    border-radius: 9px;
+}
+
+QSlider::handle:horizontal:hover {
+    background-color: @PRIMARY_LIGHT;
+}
+
+/* === PROGRESS BAR === */
+QProgressBar {
+    background-color: @GRAY_LIGHT;
+    border-radius: 4px;
+    height: 8px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: @PRIMARY;
+    border-radius: 4px;
+}
+
+/* === TOOLTIP === */
+QToolTip {
+    background-color: @WHITE;
+    color: @DARK;
+    border: 1px solid @GRAY_LIGHT;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+/* === MESSAGE BOX === */
+QMessageBox {
+    background-color: @WHITE;
+}
+
+QMessageBox QLabel {
+    color: @DARK;
+}
+
+/* === PAYMENT DIALOG === */
+QLabel#totalLabel {
+    font-size: 24px;
+    font-weight: bold;
+    color: @PRIMARY;
+    padding: 15px;
+    background-color: @GRAY_LIGHTER;
+    border-radius: 8px;
+}
+
+QLabel#discountLabel {
+    font-size: 16px;
+    font-weight: bold;
+    color: @DARK;
+}
+
+QLabel#remainingLabel[status="warning"] {
+    color: @SECONDARY;
+}
+
+QLabel#remainingLabel[status="success"] {
+    color: @SUCCESS;
+}
+
+QLabel#changeLabel[status="success"] {
+    color: @SUCCESS;
+}
+
+QPushButton#paymentMethodButton {
+    background-color: @GRAY_LIGHTER;
+    border: 2px solid @GRAY_LIGHT;
+    color: @DARK;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-family: 'Segoe UI Emoji', 'Segoe UI', Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 45px;
+    min-width: 150px;
+}
+
+QPushButton#paymentMethodButton:hover {
+    border-color: @PRIMARY;
+    background-color: @WHITE;
+}
+
+QPushButton#paymentMethodButton:checked {
+    background-color: @PRIMARY;
+    color: @WHITE;
+    border-color: @PRIMARY_DARK;
+}
+
+QPushButton#creditSaleButton {
+    background-color: @GRAY_LIGHTER;
+    border: 2px solid @GRAY_LIGHT;
+    color: @DARK;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#creditSaleButton:hover {
+    border-color: @PRIMARY;
+}
+
+QPushButton#addPaymentButton {
+    background-color: @GRAY_LIGHT;
+    color: @DARK;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#addPaymentButton:hover {
+    background-color: @GRAY;
+}
+
+QPushButton#addPaymentButton:disabled {
+    background-color: @GRAY_LIGHTER;
+    color: @GRAY;
+}
+
+QPushButton#finalizeButton {
+    background-color: @SUCCESS;
+    color: @WHITE;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#finalizeButton:hover {
+    background-color: #059669; /* Slightly darker green */
+}
+
+QPushButton#finalizeButton:disabled {
+    background-color: @GRAY_LIGHT;
+    color: @GRAY;
+}
+
+QPushButton#removePaymentButton {
+    background-color: transparent;
+    color: @GRAY;
+    border: 1px solid @GRAY_LIGHT;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+QPushButton#removePaymentButton:hover {
+    color: @ERROR;
+    border-color: @ERROR;
+}
+
+QPushButton#removePaymentButton:disabled {
+    color: @GRAY_LIGHT;
+}
+
+QMessageBox QLabel {
+    color: @DARK;
+}

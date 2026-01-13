@@ -322,7 +322,7 @@ class InputValidator:
                     result.add_error(f"Quantidade do item {item_number} deve ser maior que zero")
                 elif quantity_decimal > InputValidator.MAX_QUANTITY:
                     result.add_error(f"Quantidade do item {item_number} deve ser menor que {InputValidator.MAX_QUANTITY}")
-            except:
+            except (InvalidOperation, ValueError, TypeError):
                 result.add_error(f"Quantidade do item {item_number} deve ser um número válido")
 
         # Validação de preço unitário
@@ -471,7 +471,7 @@ class InputValidator:
             if percent < 0 or percent > 100:
                 return False, "Percentual deve estar entre 0 e 100"
             return True, ""
-        except:
+        except (InvalidOperation, ValueError, TypeError):
             return False, "Percentual deve ser um número válido"
 
     @staticmethod

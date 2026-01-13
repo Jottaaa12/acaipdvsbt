@@ -11,8 +11,10 @@ from data.connection import DB_FILE
 from data.migration_fixes import check_and_fix_sync_columns
 from data.schema import apply_automatic_fixes
 
-# Configuracao basica de logging para capturar tudo desde o inicio
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - [%(levelname)s] - %(message)s')
+# Configuracao basica de logging
+# Use variável de ambiente PDV_DEBUG=1 para ativar logs de debug
+log_level = logging.DEBUG if os.environ.get('PDV_DEBUG', '0') == '1' else logging.INFO
+logging.basicConfig(level=log_level, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
 # Workaround for python-escpos issue on Windows with non-ASCII usernames
 if sys.platform == "win32":
@@ -87,6 +89,8 @@ import updater
 from log_handler import QtLogHandler
 from aviso_scheduler import AvisoScheduler
 
+from backup_scheduler import backup_manager
+
 class PDVApplication:
     def __init__(self, app):
         self.app = app
@@ -95,6 +99,10 @@ class PDVApplication:
         self.login_dialog = None
         self.setup_app_style()
         self.init_database()
+        
+        # Iniciar backup manager (que deve estar ativo globalmente ou aqui?)
+        # O backup manager é global, mas podemos garantir que a automação siga a config aqui se necessário
+        # Por enquanto ele se auto-inicializa no import, mas precisa ser parado.
         
     def setup_app_style(self):
         # Configura o estilo global da aplicacao
@@ -141,8 +149,21 @@ class PDVApplication:
             logging.info("Verificando migrações do banco de dados (yoyo)...")
 
             # 1. Configura o backend do yoyo
-            # Usamos f'sqlite:///{db_path}' para um caminho absoluto
-            backend = yoyo.get_backend(f'sqlite:///{db_path}')
+            # Workaround: Cria tabela de lock manualmente se não existir
+            try:
+                conn_lock = db.get_db_connection()
+                conn_lock.execute("CREATE TABLE IF NOT EXISTS yoyo_lock (locked INT DEFAULT 1, pid INT, ctime TEXT, PRIMARY KEY (locked))")
+                conn_lock.commit()
+                conn_lock.close()
+            except Exception as e:
+                logging.warning(f"Erro ao tentar criar tabela yoyo_lock manualmente: {e}")
+
+            # Usamos instanciação direta do backend SQLite para evitar problemas com entry points
+            from yoyo.backends.core.sqlite3 import SQLiteBackend
+            from yoyo.connections import parse_uri, DatabaseURI
+            from yoyo.migrations import default_migration_table
+            parsed_uri = parse_uri(f'sqlite:///{db_path}')
+            backend = SQLiteBackend(parsed_uri, default_migration_table)
 
             # 2. Lê os scripts da nossa pasta 'migrations'
             migrations_path = resource_path('migrations')
@@ -203,13 +224,22 @@ class PDVApplication:
                 logging.error(f"Erro durante aplicação de correções automáticas: {e}")
                 # Não interrompe a inicialização por causa deste erro
 
+            # Garante a existência do produto para venda manual
+            try:
+                from data.product_repository import ensure_manual_product_exists
+                ensure_manual_product_exists()
+            except Exception as e:
+                logging.error(f"Erro ao verificar produto manual na inicialização: {e}")
+
             logging.info("Banco de dados inicializado com sucesso.")
 
         except db.sqlite3.Error as e:
+            logging.error(f"Erro ao inicializar o banco de dados SQLite: {e}", exc_info=True)
             QMessageBox.critical(None, "Erro de Banco de Dados", 
                                f"Erro ao inicializar o banco de dados SQLite:\n{str(e)}")
             sys.exit(1)
         except Exception as e:
+            logging.error(f"Um erro inesperado ocorreu na inicializacao: {e}", exc_info=True)
             QMessageBox.critical(None, "Erro Fatal", 
                                f"Um erro inesperado ocorreu na inicializacao:\n{str(e)}")
             sys.exit(1)
@@ -237,8 +267,8 @@ class PDVApplication:
 
         try:
             pyi_splash.close()
-        except:
-            pass
+        except NameError:
+            pass  # pyi_splash não disponível (ambiente de desenvolvimento)
         
         if self.login_dialog:
             self.login_dialog.close()
@@ -288,6 +318,9 @@ class PDVApplication:
             db.log_user_session(self.current_user['id'], 'logout')
             logging.info(f"Logout realizado: {self.current_user['username']}")
         
+        # Para agendadores e fecha conexões antes de reiniciar
+        self.stop_schedulers()
+
         if self.main_window:
             self.main_window.close()
             self.main_window = None
@@ -300,7 +333,13 @@ class PDVApplication:
         if hasattr(self, 'aviso_scheduler') and self.aviso_scheduler:
             self.aviso_scheduler.stop_scheduler()
             logging.info("AvisoScheduler parado.")
-        # Adicionar outros agendadores aqui, se houver
+        
+        # Parar Backup Manager
+        try:
+            backup_manager.stop()
+            logging.info("BackupManager parado.")
+        except Exception as e:
+            logging.error(f"Erro ao parar BackupManager: {e}")
 
         # Fecha o pool de conexões do banco de dados
         try:
@@ -309,6 +348,7 @@ class PDVApplication:
             logging.info("Pool de conexões do banco de dados fechado.")
         except Exception as e:
             logging.error(f"Erro ao fechar pool de conexões: {e}")
+            
     def run(self):
         # Executa a aplicacao
         self.show_login()
@@ -331,6 +371,21 @@ def main():
         logging.info("Executando a aplicacao...")
         exit_code = pdv_app.run()
         pdv_app.stop_schedulers() # Parar agendadores antes de sair
+        
+        # Limpeza explicita dos handlers de log para evitar RuntimeError do Qt/SIP
+        root_logger = logging.getLogger()
+        handlers_to_remove = []
+        for handler in root_logger.handlers:
+            if isinstance(handler, QtLogHandler):
+                try:
+                    handler.close()
+                except Exception:
+                    pass
+                handlers_to_remove.append(handler)
+        
+        for handler in handlers_to_remove:
+            root_logger.removeHandler(handler)
+            
         logging.info(f"Aplicacao encerrada com codigo de saida: {exit_code}")
         sys.exit(exit_code)
     except Exception as e:

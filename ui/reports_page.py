@@ -54,8 +54,8 @@ class ReportsPage(QWidget):
 
     def on_tab_changed(self, index):
         """Chamado quando o usuário muda de aba."""
-        # 0: Vendas, 1: Estoque, 2: Histórico de Caixa
-        if index == 2: # Aba de Histórico de Caixa
+        # 0: Vendas, 1: Crédito, 2: Estoque, 3: Histórico de Caixa
+        if index == 3: # Aba de Histórico de Caixa
             self.generate_cash_history_report()
 
     def create_sales_report_tab(self):
@@ -159,13 +159,29 @@ class ReportsPage(QWidget):
         layout = QVBoxLayout(widget)
         layout.setSpacing(20)
 
-        # Ações
-        actions_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("Atualizar")
+        # Filtros para Histórico de Caixa
+        filter_group = QGroupBox("Filtrar Período")
+        filter_layout = QHBoxLayout(filter_group)
+
+        self.cash_start_date_edit = QDateEdit(calendarPopup=True)
+        self.cash_start_date_edit.setDisplayFormat("dd/MM/yyyy")
+        self.cash_start_date_edit.setDate(QDate.currentDate().addDays(-7)) # Padrão: Últimos 7 dias
+        
+        self.cash_end_date_edit = QDateEdit(calendarPopup=True)
+        self.cash_end_date_edit.setDisplayFormat("dd/MM/yyyy")
+        self.cash_end_date_edit.setDate(QDate.currentDate())
+
+        self.refresh_button = QPushButton("Atualizar / Gerar")
         self.refresh_button.clicked.connect(self.generate_cash_history_report)
-        actions_layout.addWidget(self.refresh_button)
-        actions_layout.addStretch()
-        layout.addLayout(actions_layout)
+        
+        filter_layout.addWidget(QLabel("De:"))
+        filter_layout.addWidget(self.cash_start_date_edit)
+        filter_layout.addWidget(QLabel("Até:"))
+        filter_layout.addWidget(self.cash_end_date_edit)
+        filter_layout.addStretch()
+        filter_layout.addWidget(self.refresh_button)
+        
+        layout.addWidget(filter_group)
 
         # Tabela de histórico
         self.cash_history_table = QTableWidget()
@@ -298,12 +314,23 @@ class ReportsPage(QWidget):
 
     def generate_cash_history_report(self):
         """Gera e exibe o relatório de histórico de caixa de forma assíncrona."""
+        # Obtém datas dos campos (que agora existem)
+        if not hasattr(self, 'cash_start_date_edit') or not hasattr(self, 'cash_end_date_edit'):
+            # Fallback se algo der errado na inicialização
+            start_date = QDate.currentDate().addDays(-7).toString("yyyy-MM-dd")
+            end_date = QDate.currentDate().toString("yyyy-MM-dd")
+        else:
+            start_date = self.cash_start_date_edit.date().toString("yyyy-MM-dd")
+            end_date = self.cash_end_date_edit.date().toString("yyyy-MM-dd")
+
         # Desabilita o botão durante a geração
-        self.refresh_button.setEnabled(False)
-        self.refresh_button.setText("Carregando...")
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setEnabled(False)
+            self.refresh_button.setText("Carregando...")
 
         # Cria worker para executar o relatório em background
-        worker = Worker(db.get_cash_session_history)
+        # Agora passando os argumentos necessários start_date e end_date
+        worker = Worker(db.get_cash_session_history, start_date, end_date)
         worker.signals.finished.connect(self.on_cash_history_report_ready)
         worker.signals.error.connect(self.on_report_error)
         worker.signals.finished.connect(self.on_cash_history_report_finished)

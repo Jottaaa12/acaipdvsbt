@@ -13,11 +13,14 @@ import database as db
 from ui.theme import ModernTheme, IconTheme
 from utils import format_currency, parse_currency
 from ui.cash_manager import CashManager
+from ui.cash_manager import CashManager
 from ui.cash_closing_dialog import CashClosingDialog
+from ui.custom_input_dialog import CustomInputDialog
 from integrations.whatsapp_manager import WhatsAppManager
 from PyQt6.QtCore import QThreadPool
 from .worker import Worker
 import logging
+from ui.success_dialog import SuccessDialog
 
 class CashPage(QWidget):
     '''Página refatorada para uma gestão de caixa moderna e completa.'''
@@ -431,7 +434,7 @@ class CashPage(QWidget):
     # --- Lógica de Ações e Alertas
     # ==========================================================================
     def handle_open_cash(self):
-        amount_text, ok = QInputDialog.getText(self, "Abrir Caixa", "Valor inicial (fundo de troco):", text="0,00")
+        amount_text, ok = CustomInputDialog.get_value(self, "Abrir Caixa", "Valor inicial (fundo de troco):", "0,00")
         if not ok: return
         try:
             initial_amount = parse_currency(amount_text)
@@ -445,7 +448,7 @@ class CashPage(QWidget):
     def on_session_opened(self, success, message):
         self.open_cash_button.setText(f'{IconTheme.get_icon("open")}')
         if success:
-            QMessageBox.information(self, "Sucesso", f"Caixa aberto com ID: {message}")
+            SuccessDialog("Sucesso", f"Caixa aberto com ID: {message}", self).exec()
             self.update_live_data()
             self.cash_session_changed.emit()
         else:
@@ -474,7 +477,7 @@ class CashPage(QWidget):
             self.close_cash_dialog.accept() # Fecha o diálogo
 
         if success:
-            QMessageBox.information(self, "Caixa Fechado", message)
+            SuccessDialog("Caixa Fechado", message, self).exec()
             self.update_live_data()
             self.load_session_history()
             self.cash_session_changed.emit()
@@ -510,7 +513,7 @@ class CashPage(QWidget):
         # Esta função ainda é síncrona, mas geralmente é rápida.
         # Poderia ser movida para o CashManager se necessário.
         title = "Suprimento" if m_type == 'suprimento' else "Sangria"
-        amount_text, ok = QInputDialog.getText(self, title, f"Valor do {title.lower()}:", text="0,00")
+        amount_text, ok = CustomInputDialog.get_value(self, title, f"Valor do {title.lower()}:", "0,00")
         if not ok: return
 
         try:
@@ -519,7 +522,10 @@ class CashPage(QWidget):
                 QMessageBox.warning(self, "Valor Inválido", "O valor deve ser maior que zero.")
                 return
 
-            reason, ok = QInputDialog.getText(self, title, f"Motivo do {title.lower()}:")
+                return
+            
+            reason_title = f"Motivo da {title}" if m_type == 'sangria' else f"Motivo do {title}"
+            reason, ok = CustomInputDialog.get_value(self, title, reason_title, "")
             if not ok or not reason.strip():
                 QMessageBox.warning(self, "Motivo Obrigatório", "É necessário informar um motivo.")
                 return
@@ -528,7 +534,7 @@ class CashPage(QWidget):
             # Removida solicitação de senha de gerente para valores altos
 
             db.add_cash_movement(self.session_id, self.current_user['id'], m_type, amount, reason, authorized_by_id)
-            QMessageBox.information(self, "Sucesso", f"{title} registrado com sucesso.")
+            SuccessDialog("Sucesso", f"{title} registrado com sucesso.", self).exec()
             self.update_live_data()
 
         except InvalidOperation:

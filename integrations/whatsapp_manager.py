@@ -31,6 +31,71 @@ try:
 except Exception:
     qrcode = None
 
+class CircuitBreaker:
+    """
+    Implementação do padrão Circuit Breaker para evitar sobrecarga quando o serviço está indisponível.
+    
+    Estados:
+    - CLOSED: Operação normal, permite todas as requisições
+    - OPEN: Serviço indisponível, bloqueia requisições para evitar sobrecarga
+    - HALF_OPEN: Teste de recuperação, permite uma requisição de teste
+    """
+    CLOSED = 'closed'
+    OPEN = 'open'
+    HALF_OPEN = 'half_open'
+    
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_count = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.state = self.CLOSED
+        self._lock = threading.RLock()
+    
+    def record_success(self):
+        """Registra sucesso e reseta o contador."""
+        with self._lock:
+            self.failure_count = 0
+            self.state = self.CLOSED
+    
+    def record_failure(self):
+        """Registra falha e potencialmente abre o circuito."""
+        with self._lock:
+            self.failure_count += 1
+            self.last_failure_time = datetime.now()
+            
+            if self.failure_count >= self.failure_threshold:
+                self.state = self.OPEN
+    
+    def can_execute(self) -> bool:
+        """Verifica se a operação pode ser executada."""
+        with self._lock:
+            if self.state == self.CLOSED:
+                return True
+            
+            if self.state == self.OPEN:
+                # Verificar se passou tempo suficiente para tentar recuperação
+                if self.last_failure_time:
+                    elapsed = (datetime.now() - self.last_failure_time).total_seconds()
+                    if elapsed >= self.recovery_timeout:
+                        self.state = self.HALF_OPEN
+                        return True
+                return False
+            
+            # HALF_OPEN: permite uma tentativa
+            return True
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Retorna status atual do circuit breaker."""
+        with self._lock:
+            return {
+                'state': self.state,
+                'failure_count': self.failure_count,
+                'failure_threshold': self.failure_threshold,
+                'last_failure': self.last_failure_time.isoformat() if self.last_failure_time else None
+            }
+
+
 class WhatsAppManager(QObject):
     """
     Integração WhatsApp robusta com sistema de retry, validações, cache e monitoring.
@@ -39,6 +104,8 @@ class WhatsAppManager(QObject):
     status_updated = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
     log_updated = pyqtSignal(str)
+    # Sinal para iniciar QR timeout na thread principal
+    _start_qr_timeout_signal = pyqtSignal(int)
 
     _instance = None
 
@@ -61,6 +128,12 @@ class WhatsAppManager(QObject):
         self._session_lock = threading.RLock()  # Lock para sessão concorrente
         self._qr_timeout_timer: Optional[QTimer] = None
 
+        # Circuit Breaker para evitar sobrecarga quando desconectado
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=self.config.get('connection.circuit_breaker_threshold', 5),
+            recovery_timeout=self.config.get('connection.circuit_breaker_recovery', 60.0)
+        )
+
         # Cache e rate limiting
         self._phone_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_lock = threading.RLock()  # Lock específico para operações de cache
@@ -81,6 +154,9 @@ class WhatsAppManager(QObject):
         # Callbacks para resultados de mídia
         self._media_callbacks: Dict[str, callable] = {}
         self._media_callbacks_lock = threading.RLock()
+
+        # Conectar sinal de QR timeout para criar timer na thread principal
+        self._start_qr_timeout_signal.connect(self._handle_qr_timeout_signal)
 
         # Carregar estado persistente
         self._load_persistent_cache()
@@ -196,8 +272,17 @@ class WhatsAppManager(QObject):
                     self.error_occurred.emit(result['error'])
                     return result
 
+            # Verificar Circuit Breaker
+            if not self._circuit_breaker.can_execute():
+                cb_status = self._circuit_breaker.get_status()
+                result['error'] = f"Serviço WhatsApp temporariamente indisponível (Circuit Breaker {cb_status['state']})"
+                result['error_type'] = 'circuit_breaker_open'
+                self.logger.log_error(result['error'], error_type='circuit_breaker_open')
+                return result
+
             # Verificar se worker está disponível
             if not self._worker_thread or not self._worker_thread.isRunning():
+                self._circuit_breaker.record_failure()
                 result['error'] = "Serviço WhatsApp não está em execução"
                 result['error_type'] = 'worker_not_running'
                 self.logger.log_error(result['error'], error_type='worker_not_running')
@@ -610,6 +695,9 @@ class WhatsAppManager(QObject):
             status = self.get_health_status()
             self._last_health_check = datetime.now()
 
+            # Adicionar informações do Circuit Breaker ao health status
+            status['circuit_breaker'] = self._circuit_breaker.get_status()
+
             self.logger.log_health_check(f"Status: {status['connected']}", **status)
 
             # Emitir alertas se necessário
@@ -620,11 +708,36 @@ class WhatsAppManager(QObject):
         except Exception as e:
             self.logger.log_error(f"Falha no health check: {e}", error_type='health_check_failed')
 
+    @pyqtSlot(int)
+    def _handle_qr_timeout_signal(self, timeout_seconds: int):
+        """Handler executado na thread principal para criar QTimer de timeout do QR."""
+        if self._qr_timeout_timer:
+            self._qr_timeout_timer.stop()
+            self._qr_timeout_timer.deleteLater()
+        
+        self._qr_timeout_timer = QTimer(self)
+        self._qr_timeout_timer.setSingleShot(True)
+        self._qr_timeout_timer.timeout.connect(self._on_qr_timeout)
+        self._qr_timeout_timer.start(timeout_seconds * 1000)
+        self.logger.log_connection(f"QR timeout timer iniciado: {timeout_seconds}s")
+
+    @pyqtSlot()
+    def _on_qr_timeout(self):
+        """Callback quando QR code expira."""
+        self.logger.log_connection("QR Code expirou")
+        self.error_occurred.emit("QR Code expirou. Gere um novo QR Code.")
+
     @pyqtSlot(str, bool, str)
     def _on_message_result_received(self, message_id: str, success: bool, error: str):
         """Processa resultado de envio de mensagem do worker."""
         try:
             self._record_message_result(message_id, success, error)
+
+            # Atualizar Circuit Breaker baseado no resultado
+            if success:
+                self._circuit_breaker.record_success()
+            else:
+                self._circuit_breaker.record_failure()
 
             # Chamar callbacks de mídia se registrados
             self._call_media_callbacks(message_id, success, error)
@@ -1014,16 +1127,43 @@ class WhatsAppWorker(QThread):
                     msg = json.loads(line)
                     # Adicionar mensagem à fila para processamento thread-safe
                     self._message_queue.put(msg)
-                except json.JSONDecodeError as e:
-                    self.logger.log_error(f"Linha inválida do bridge: {line}",
-                                        error_type='bridge_json_error',
-                                        raw_line=raw)
+                except json.JSONDecodeError:
+                    # Ignorar linhas que não são JSON válido (debug output do Baileys)
+                    # Essas linhas são informações internas do Baileys, não erros reais
+                    pass
 
         except Exception as e:
             self.logger.log_error(f"Erro na leitura stdout: {e}", error_type='stdout_read_error')
 
     def _read_stderr(self):
         """Lê saída de erro do processo Node.js."""
+        # Palavras que indicam que não é um erro real, apenas informação de debug
+        ignore_patterns = [
+            'Closing stale open session',
+            'Closing session:',
+            'SessionEntry',
+            '_chains:',
+            'registrationId:',
+            'currentRatchet:',
+            'ephemeralKeyPair:',
+            'lastRemoteEphemeralKey:',
+            'previousCounter:',
+            'rootKey:',
+            'indexInfo:',
+            'baseKey:',
+            'baseKeyType:',
+            'closed:',
+            'used:',
+            'created:',
+            'remoteIdentityKey:',
+            'pubKey:',
+            'privKey:',
+            'chainKey:',
+            'chainType:',
+            'messageKeys:',
+            '<Buffer'
+        ]
+        
         try:
             with self._process_lock:
                 if not self.process or not self.process.stderr:
@@ -1035,6 +1175,10 @@ class WhatsAppWorker(QThread):
 
                 line = raw.strip()
                 if line:
+                    # Ignorar mensagens de debug do Baileys
+                    if any(pattern in line for pattern in ignore_patterns):
+                        continue
+                    
                     self.logger.log_error(f"Bridge stderr: {line}",
                                         error_type='bridge_stderr',
                                         stderr_line=line)
@@ -1180,10 +1324,10 @@ class WhatsAppWorker(QThread):
             self.manager.qr_code_ready.emit(self.qr_image_path)
             self.manager.status_updated.emit("ℹ️ QR Code gerado - escaneie com WhatsApp")
 
-            # Iniciar timeout do QR se configurado
+            # Iniciar timeout do QR via sinal para thread principal
             qr_timeout = self.config.get('ui.qr_code_timeout', 300)
             if qr_timeout > 0:
-                self._start_qr_timeout(qr_timeout)
+                self.manager._start_qr_timeout_signal.emit(qr_timeout)
 
         except Exception as e:
             self.logger.log_error(f"Falha ao gerar QR code: {e}", error_type='qr_generation_failed')
@@ -1261,21 +1405,7 @@ class WhatsAppWorker(QThread):
                 finally:
                     self.process = None
 
-    def _start_qr_timeout(self, timeout_seconds: int):
-        """Inicia timeout para QR code."""
-        if self._reconnect_timer:
-            self._reconnect_timer.stop()
 
-        self._reconnect_timer = QTimer()
-        self._reconnect_timer.setSingleShot(True)
-        self._reconnect_timer.timeout.connect(self._on_qr_timeout)
-        self._reconnect_timer.start(timeout_seconds * 1000)
-
-    @pyqtSlot()
-    def _on_qr_timeout(self):
-        """Callback quando QR code expira."""
-        self.logger.log_connection("QR Code expirou")
-        self.manager.error_occurred.emit("QR Code expirou. Gere um novo QR Code.")
 
     def _find_node_command(self) -> Optional[str]:
         """Localiza comando Node.js."""

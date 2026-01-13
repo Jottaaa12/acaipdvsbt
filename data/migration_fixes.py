@@ -1,6 +1,34 @@
 import sqlite3
 import logging
+import os
+import json
+from datetime import datetime, timedelta
 from data.connection import get_db_connection
+
+# Arquivo de cache para verificações
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.sync_check_cache.json')
+
+def _should_run_check():
+    """Verifica se a verificação deve ser executada (cache de 24h)."""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
+                cache = json.load(f)
+            last_check = datetime.fromisoformat(cache.get('last_check', '2000-01-01'))
+            if datetime.now() - last_check < timedelta(hours=24):
+                logging.debug("Verificação de sync_columns pulada (cache válido por 24h)")
+                return False
+    except Exception:
+        pass  # Se houver erro no cache, executa a verificação
+    return True
+
+def _update_check_cache():
+    """Atualiza o cache de verificação."""
+    try:
+        with open(CACHE_FILE, 'w') as f:
+            json.dump({'last_check': datetime.now().isoformat()}, f)
+    except Exception:
+        pass  # Ignora erros ao salvar cache
 
 def check_and_fix_sync_columns():
     """
@@ -8,7 +36,13 @@ def check_and_fix_sync_columns():
 
     Esta função deve ser executada na inicialização do programa, logo após a verificação do yoyo,
     para consertar automaticamente o banco de dados de qualquer usuário que tenha tido essa migração parcial.
+    
+    Usa cache de 24h para evitar verificações repetidas.
     """
+    # Verifica cache - pula se já verificou nas últimas 24h
+    if not _should_run_check():
+        return
+    
     logging.info("Iniciando verificação de correção das colunas de sincronização...")
 
     # Lista de tabelas que deveriam ter sido atualizadas pela migração
@@ -96,6 +130,9 @@ def check_and_fix_sync_columns():
             logging.info(f"Verificação concluída. {corrections_made} tabelas foram corrigidas.")
         else:
             logging.info("Verificação concluída. Nenhuma correção foi necessária.")
+        
+        # Atualiza cache para evitar verificações repetidas
+        _update_check_cache()
 
     except Exception as e:
         logging.error(f"Erro geral durante verificação de correção das colunas de sincronização: {e}")
@@ -104,3 +141,4 @@ def check_and_fix_sync_columns():
     finally:
         if conn:
             conn.close()
+

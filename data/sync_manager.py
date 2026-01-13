@@ -6,7 +6,14 @@ from .connection import get_db_connection
 from .api_client import api_client_instance
 from data.settings_repository import SettingsRepository # <-- ADICIONAR
 from PyQt6.QtCore import QObject, pyqtSignal
-from postgrest import APIResponse
+try:
+    from postgrest import APIResponse
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    APIResponse = object # Mock para type hinting/isinstance não quebrar
+    logging.warning("Módulo postgrest não encontrado. Sincronização (Supabase) será desativada.")
+
 
 # Define a ordem exata de sincronização, de pais para filhos.
 SYNC_ORDER = [
@@ -83,6 +90,11 @@ class SyncManager(QObject):
         if not self.api_client.check_connection():
             logging.warning("SyncManager: Sincronização falhou. Sem conexão com a API.")
             self.sync_finished.emit(False, "Falha na conexão. Verifique a internet e o Supabase.")
+            return
+
+        if not SUPABASE_AVAILABLE:
+            logging.warning("SyncManager: Supabase não disponível (bibliotecas ausentes).")
+            self.sync_finished.emit(False, "Sincronização desativada (libs ausentes).")
             return
 
         self.is_syncing = True
@@ -657,6 +669,9 @@ class SyncManager(QObject):
         Chama uma função RPC no Supabase para truncar todas as tabelas transacionais.
         Retorna (True, "Sucesso") ou (False, "Mensagem de Erro").
         """
+        if not SUPABASE_AVAILABLE:
+            return False, "Funcionalidade indisponível: Supabase libs ausentes."
+
         try:
             logging.warning("Iniciando chamada RPC para truncate_transactional_data no Supabase.")
             self.sync_status_updated.emit("Enviando comando de limpeza para a nuvem...")

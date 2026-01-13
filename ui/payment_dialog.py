@@ -99,7 +99,8 @@ class PaymentDialog(QDialog):
         # --- Payment Method Selection (Dynamic) ---
         payment_methods_frame = QFrame()
         payment_grid = QGridLayout(payment_methods_frame)
-        payment_grid.setSpacing(15)
+        payment_grid.setSpacing(10)
+        payment_grid.setContentsMargins(5, 5, 5, 10)  # Margem extra na parte inferior
 
         # Hardcoded buttons for layout purposes
         self.cash_button = QPushButton("💵 F1 - Dinheiro")

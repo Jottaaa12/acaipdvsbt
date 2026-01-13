@@ -253,6 +253,11 @@ class BackupManager(QObject):
         self.scheduler.backup_completed.connect(self._on_backup_completed)
         self.scheduler.backup_failed.connect(self._on_backup_failed)
 
+    def stop(self):
+        """Para o agendador de backup."""
+        if self.scheduler:
+            self.scheduler.stop_scheduler()
+
     def _on_backup_completed(self, backup_path: str):
         """Callback quando backup é concluído."""
         filename = os.path.basename(backup_path)

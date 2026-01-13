@@ -97,7 +97,7 @@ class ModernLoginDialog(QDialog):
         self.password_input.setObjectName("modern_input")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setPlaceholderText("Digite sua senha...")
-        self.password_input.returnPressed.connect(self.attempt_login)
+        # Nota: Enter é tratado no keyPressEvent
         password_layout.addWidget(self.password_input)
         
         form_layout.addLayout(password_layout)
@@ -348,6 +348,9 @@ class ModernLoginDialog(QDialog):
         """Intercepta teclas"""
         if event.key() == Qt.Key.Key_Escape:
             self.reject()
+        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Intercepta Enter para evitar que feche o diálogo prematuramente
+            self.attempt_login()
         else:
             super().keyPressEvent(event)
     

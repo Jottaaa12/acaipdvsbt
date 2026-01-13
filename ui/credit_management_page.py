@@ -6,10 +6,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from datetime import datetime, date
 from database import get_credit_sales, add_credit_payment, get_all_payment_methods, get_credit_sale_details, get_monthly_credit_summary, get_overdue_evolution
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from integrations.whatsapp_sales_notifications import get_whatsapp_sales_notifier
 import logging
-import pyqtgraph as pg
 
 class CreditManagementPage(QWidget):
     def __init__(self, user, cash_session, parent=None):
@@ -23,14 +22,9 @@ class CreditManagementPage(QWidget):
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # Dashboard
-        dashboard_group = QGroupBox("Dashboard de Crédito")
-        dashboard_layout = QHBoxLayout(dashboard_group)
-        self.monthly_summary_chart = pg.PlotWidget()
-        self.overdue_evolution_chart = pg.PlotWidget()
-        dashboard_layout.addWidget(self.monthly_summary_chart)
-        dashboard_layout.addWidget(self.overdue_evolution_chart)
-        layout.addWidget(dashboard_group)
+
+
+        # Charts removed as per user request to save space
 
         # Toolbar
         toolbar_layout = QHBoxLayout()
@@ -63,37 +57,8 @@ class CreditManagementPage(QWidget):
         layout.addWidget(self.table)
 
     def update_dashboard(self):
-        self.update_monthly_summary_chart()
-        self.update_overdue_evolution_chart()
-
-    def update_monthly_summary_chart(self):
-        summary = get_monthly_credit_summary()
-        total_due = float(summary['total_due'])
-        total_paid = float(summary['total_paid_month'])
-
-        self.monthly_summary_chart.clear()
-        bg = pg.BarGraphItem(x=[1, 2], height=[total_due, total_paid], width=0.6, brushes=['r', 'g'])
-        self.monthly_summary_chart.addItem(bg)
-        self.monthly_summary_chart.setTitle("Resumo do Mês")
-        ax = self.monthly_summary_chart.getAxis('bottom')
-        ax.setTicks([[(1, 'A Receber'), (2, 'Recebido')]])
-
-    def update_overdue_evolution_chart(self):
-        evolution = get_overdue_evolution()
-        self.overdue_evolution_chart.clear()
-        if evolution:
-            dates = [datetime.strptime(item['date'], '%Y-%m-%d').timestamp() for item in evolution]
-            amounts = [float(item['amount']) for item in evolution]
-            self.overdue_evolution_chart.plot(dates, amounts, pen='r', symbol='o')
-        self.overdue_evolution_chart.setTitle("Evolução de Vencidos")
-
-        # Configurar eixo X como data usando DateAxisItem do PyQtGraph
-        try:
-            from pyqtgraph import DateAxisItem
-            date_axis = DateAxisItem(orientation='bottom')
-            self.overdue_evolution_chart.setAxisItems({'bottom': date_axis})
-        except Exception as e:
-            logging.warning(f"Could not set date axis for chart: {e}")
+        # Charts removed
+        pass
 
     def load_credit_sales(self):
         self.update_dashboard() # Atualiza o dashboard sempre que a tabela é carregada
@@ -112,6 +77,14 @@ class CreditManagementPage(QWidget):
         today = date.today()
         overdue_color = QColor("#d9534f") # Reddish color
 
+        # Status translation map
+        status_translation = {
+            "pending": "Pendente",
+            "partially_paid": "Parcialmente Pago",
+            "paid": "Pago",
+            "cancelled": "Cancelado"
+        }
+
         for row, sale in enumerate(sales):
             # Create items
             item_customer = QTableWidgetItem(sale['customer_name'])
@@ -120,7 +93,10 @@ class CreditManagementPage(QWidget):
             item_balance = QTableWidgetItem(f"R$ {sale['balance_due']:.2f}")
             item_created = QTableWidgetItem(sale['created_date'])
             item_due = QTableWidgetItem(sale.get('due_date', 'N/A'))
-            item_status = QTableWidgetItem(sale['status'])
+            
+            # Translate status for display
+            translated_status = status_translation.get(sale['status'], sale['status'])
+            item_status = QTableWidgetItem(translated_status)
 
             # Store the sale ID in the first item of the row
             item_customer.setData(Qt.ItemDataRole.UserRole, sale['id'])
@@ -228,8 +204,8 @@ class RegisterPaymentDialog(QDialog):
         try:
             amount = Decimal(amount_str.replace(",", "."))
             if amount <= 0 or amount > self.balance_due:
-                raise ValueError
-        except:
+                raise ValueError("Valor fora do intervalo permitido")
+        except (ValueError, TypeError, InvalidOperation):
             QMessageBox.warning(self, "Valor Inválido", f"Por favor, insira um valor válido entre R$ 0,01 e R$ {self.balance_due:.2f}")
             return Decimal("0"), None
         

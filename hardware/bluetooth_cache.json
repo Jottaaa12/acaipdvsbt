@@ -1,0 +1,17 @@
+{
+  "devices": {
+    "COM7": {
+      "name": "Impressora Bluetooth Configurada",
+      "address": "",
+      "is_connected": true,
+      "last_seen": "2025-11-15T18:55:53.186098",
+      "connection_attempts": 0,
+      "last_error": ""
+    }
+  },
+  "config": {
+    "connection_timeout": 10,
+    "reconnect_attempts": 3,
+    "monitor_interval": 30
+  }
+}

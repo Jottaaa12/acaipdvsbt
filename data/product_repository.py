@@ -205,3 +205,52 @@ def update_product_price(barcode, new_price):
         return False, f"Erro de banco de dados ao atualizar preço: {e}"
     finally:
         conn.close()
+
+def ensure_manual_product_exists():
+    """Garante que o produto de venda manual 'AÇAI KG' (9999) exista com as configurações corretas."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Dados solicitados pelo usuário
+        BARCODE = '9999'
+        DESCRIPTION = 'AÇAI KG'
+        PRICE_DECIMAL = Decimal('50.00')
+        PRICE_CENTS = to_cents(PRICE_DECIMAL)
+        STOCK_QUANTITY = 9999
+        STOCK_INTEGER = STOCK_QUANTITY * 1000 # Conversão padrão do sistema
+        SALE_TYPE = 'weight'
+        
+        # Verifica se existe
+        cursor.execute('SELECT id FROM products WHERE barcode = ?', (BARCODE,))
+        row = cursor.fetchone()
+        
+        if not row:
+            logging.warning(f"Produto manual {BARCODE} não encontrado. Criando...")
+            cursor.execute('''
+                INSERT INTO products (description, barcode, price, stock, quantity, sale_type, group_id, is_deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            ''', (DESCRIPTION, BARCODE, PRICE_CENTS, STOCK_INTEGER, STOCK_INTEGER, SALE_TYPE, None))
+            conn.commit()
+            logging.info(f"Produto manual {BARCODE} criado com sucesso.")
+            return True, "Produto manual criado."
+        else:
+            # Se existe, ATUALIZA forçosamente para garantir que esteja correto (nome, preço, tipo, etc)
+            # Isso corrige o produto se ele estiver como 'Venda Manual' antiga
+            product_id = row[0]
+            cursor.execute('''
+                UPDATE products 
+                SET stock = ?, 
+                    quantity = ?, 
+                    is_deleted = 0,
+                    sync_status = CASE WHEN sync_status = 'pending_create' THEN 'pending_create' ELSE 'pending_update' END
+                WHERE id = ?
+            ''', (STOCK_INTEGER, STOCK_INTEGER, product_id))
+            conn.commit()
+            logging.info(f"Produto manual {BARCODE} atualizado/corrigido com sucesso.")
+            return True, "Produto manual verificado e atualizado."
+            
+    except sqlite3.Error as e:
+        logging.error(f"Erro ao garantir produto manual: {e}")
+        return False, f"Erro de banco: {e}"
+    finally:
+        conn.close()

@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QGridLayout,
-    QDialog, QLineEdit, QComboBox, QMessageBox, QTabWidget, QListWidget, QHBoxLayout
+    QDialog, QLineEdit, QComboBox, QMessageBox, QTabWidget, QListWidget, QHBoxLayout,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt
 from config_manager import ConfigManager
@@ -89,9 +90,30 @@ class HardwareWidget(QWidget):
         self.bluetooth_search_button = QPushButton("Procurar Portas")
         self.bluetooth_search_button.clicked.connect(self.search_com_ports)
 
+        # Configurações avançadas Bluetooth
+        self.bluetooth_advanced_group = QWidget()
+        advanced_layout = QGridLayout(self.bluetooth_advanced_group)
+        advanced_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.bluetooth_timeout_input = QLineEdit(placeholderText="10")
+        self.bluetooth_reconnect_attempts_input = QLineEdit(placeholderText="3")
+        self.bluetooth_auto_reconnect_check = QCheckBox("Reconexão automática")
+        self.bluetooth_auto_reconnect_check.setChecked(True)
+        self.bluetooth_auto_monitoring_check = QCheckBox("Monitoramento automático")
+        self.bluetooth_auto_monitoring_check.setChecked(True)
+
+        advanced_layout.addWidget(QLabel("Timeout de Conexão (s):"), 0, 0)
+        advanced_layout.addWidget(self.bluetooth_timeout_input, 0, 1)
+        advanced_layout.addWidget(QLabel("Máx. Tentativas Reconexão:"), 1, 0)
+        advanced_layout.addWidget(self.bluetooth_reconnect_attempts_input, 1, 1)
+        advanced_layout.addWidget(self.bluetooth_auto_reconnect_check, 2, 0, 1, 2)
+        advanced_layout.addWidget(self.bluetooth_auto_monitoring_check, 3, 0, 1, 2)
+
         bluetooth_layout.addWidget(QLabel("Porta Bluetooth:"))
         bluetooth_layout.addWidget(self.bluetooth_port_input)
         bluetooth_layout.addWidget(self.bluetooth_search_button)
+        bluetooth_layout.addWidget(QLabel("Configurações Avançadas:"))
+        bluetooth_layout.addWidget(self.bluetooth_advanced_group)
 
         # Campos Serial
         self.serial_group = QWidget()
@@ -243,6 +265,11 @@ class HardwareWidget(QWidget):
             'serial_baudrate': int(self.serial_baudrate_input.text()) if self.serial_baudrate_input.text() else 9600,
             'network_ip': self.network_ip_input.text().strip(),
             'network_port': int(self.network_port_input.text()) if self.network_port_input.text() else 9100,
+            # Configurações avançadas Bluetooth
+            'bluetooth_connection_timeout': int(self.bluetooth_timeout_input.text()) if self.bluetooth_timeout_input.text() else 10,
+            'bluetooth_max_reconnect_attempts': int(self.bluetooth_reconnect_attempts_input.text()) if self.bluetooth_reconnect_attempts_input.text() else 3,
+            'bluetooth_auto_reconnect': self.bluetooth_auto_reconnect_check.isChecked(),
+            'bluetooth_auto_monitoring': self.bluetooth_auto_monitoring_check.isChecked(),
         }
         config['printer'] = printer_config
 
@@ -372,3 +399,8 @@ class HardwareWidget(QWidget):
         self.network_ip_input.setText(printer_config.get('network_ip', ''))
         self.network_port_input.setText(str(printer_config.get('network_port', 9100)))
 
+        # Carregar configurações avançadas Bluetooth
+        self.bluetooth_timeout_input.setText(str(printer_config.get('bluetooth_connection_timeout', 10)))
+        self.bluetooth_reconnect_attempts_input.setText(str(printer_config.get('bluetooth_max_reconnect_attempts', 3)))
+        self.bluetooth_auto_reconnect_check.setChecked(printer_config.get('bluetooth_auto_reconnect', True))
+        self.bluetooth_auto_monitoring_check.setChecked(printer_config.get('bluetooth_auto_monitoring', True))

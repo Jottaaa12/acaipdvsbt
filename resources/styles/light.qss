@@ -1,0 +1,678 @@
+/* === VARIÁVEIS (Substituídas pelo ThemeManager) === */
+/* 
+  @PRIMARY_DARK, @PRIMARY, @PRIMARY_LIGHT, @PRIMARY_LIGHTEST
+  @SECONDARY, @SECONDARY_DARK
+  @DARK, @GRAY, @GRAY_LIGHT, @GRAY_LIGHTER, @WHITE
+  @SUCCESS, @ERROR
+*/
+
+/* === APLICAÇÃO PRINCIPAL === */
+QMainWindow {
+    background-color: @GRAY_LIGHTER;
+    color: @DARK;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+QWidget {
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+/* === SIDEBAR === */
+QFrame#sidebar {
+    /* Gradiente sutil e elegante */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 @PRIMARY, stop:1 @PRIMARY_DARK);
+    border: none;
+    border-radius: 0px; 
+}
+
+QFrame#sidebar_collapsed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 @PRIMARY, stop:1 @PRIMARY_DARK);
+    border: none;
+    max-width: 70px; /* Um pouco mais largo para os ícones respirarem */
+}
+
+/* === BOTÕES SIDEBAR === */
+QPushButton#sidebar_button {
+    background-color: transparent;
+    color: rgba(255, 255, 255, 0.9); /* Branco levemente transparente para menos contraste duro */
+    border: none;
+    outline: none; /* Remove o pontilhado de foco */
+    padding: 15px 20px; /* Mais espaço interno */
+    text-align: left;
+    font-size: 15px; /* Fonte levemente maior */
+    font-weight: 500;
+    border-radius: 12px; /* Mais arredondado */
+    margin: 6px 12px; /* Mais separação vertical */
+    min-height: 25px; /* Altura mínima garantida */
+}
+
+QPushButton#sidebar_button:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: @WHITE;
+}
+
+QPushButton#sidebar_button:pressed {
+    background-color: rgba(255, 255, 255, 0.25);
+}
+
+QPushButton#sidebar_button[active="true"] {
+    background-color: @WHITE;
+    color: @PRIMARY;
+    font-weight: 700;
+    /* Efeito de "aba" */
+    border-left: 4px solid @SECONDARY; 
+}
+
+/* === LOGO & HEADER === */
+QLabel#logoLabel {
+    font-size: 32px; /* Emoji de uva maior */
+    margin-right: 10px;
+    background-color: transparent;
+}
+
+QLabel#dashboardTitleLabel {
+    color: @WHITE;
+    font-size: 20px;
+    font-weight: 700;
+    font-family: 'Segoe UI', sans-serif;
+    background-color: transparent;
+}
+
+/* === CARDS === */
+QFrame#card, QFrame#metricCard {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 16px; /* Cards modernos bem arredondados */
+    /* Sombra simulada com borda inferior mais grossa em cor suave */
+    border-bottom: 2px solid @GRAY_LIGHT; 
+}
+
+QFrame#modern_card {
+    background-color: @WHITE;
+    border-radius: 16px;
+    border: 1px solid #E5E7EB;
+}
+
+/* === BOTÕES DE AÇÃO (MODERNOS) === */
+/* Primário */
+QPushButton#modern_button_primary {
+    background-color: @PRIMARY;
+    color: @WHITE;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#modern_button_primary:hover {
+    background-color: @PRIMARY_LIGHT;
+    margin-top: 1px; /* Efeito tátil simples */
+}
+
+QPushButton#modern_button_primary:pressed {
+    background-color: @PRIMARY_DARK;
+    margin-top: 2px;
+}
+
+/* Secundário (Ações Alternativas) */
+QPushButton#modern_button_secondary {
+    background-color: @WHITE;
+    color: @PRIMARY;
+    border: 1px solid @GRAY_LIGHT;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#modern_button_secondary:hover {
+    background-color: @GRAY_LIGHTER;
+    border-color: @PRIMARY;
+}
+
+QPushButton#modern_button_secondary:pressed {
+    background-color: @GRAY_LIGHT;
+}
+
+/* Outline (Ações Menos Importantes) */
+QPushButton#modern_button_outline {
+    background-color: transparent;
+    color: @GRAY;
+    border: 1px solid @GRAY;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+QPushButton#modern_button_outline:hover {
+    color: @PRIMARY;
+    border-color: @PRIMARY;
+    background-color: rgba(79, 70, 229, 0.05); /* @PRIMARY com alpha */
+}
+
+/* Erro / Perigo */
+QPushButton#modern_button_error {
+    background-color: @WHITE;
+    color: @ERROR;
+    border: 1px solid @ERROR;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#modern_button_error:hover {
+    background-color: @ERROR;
+    color: @WHITE;
+}
+
+/* === INPUTS === */
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    padding: 10px 12px; /* Mais padding = visual mais limpo */
+    font-size: 14px;
+    color: @DARK;
+    selection-background-color: @PRIMARY_LIGHT;
+}
+
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+    border: 1px solid @PRIMARY;
+    background-color: @WHITE;
+}
+
+QLineEdit#modern_input {
+    font-size: 16px; /* Texto maior para inputs principais */
+    padding: 12px 16px;
+    border-radius: 12px;
+    background-color: #F9FAFB; /* Fundo levemente cinza para destacar o campo */
+    border: 1px solid transparent; 
+}
+
+QLineEdit#modern_input:focus {
+    background-color: @WHITE;
+    border: 1px solid @PRIMARY;
+}
+
+/* === TABELAS === */
+QTableWidget {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHTER;
+    border-radius: 12px;
+    gridline-color: transparent; /* Remove linhas verticais/horizontais duras */
+    font-size: 14px;
+    color: @DARK;
+    padding: 5px;
+}
+
+QTableWidget::item {
+    padding: 12px 15px; /* Mais espaço nas células */
+    border-bottom: 1px solid @GRAY_LIGHTER;
+}
+
+QTableWidget::item:selected {
+    background-color: @PRIMARY_LIGHTEST; /* Fundo muito suave */
+    color: @PRIMARY_DARK; /* Texto escuro contrastante */
+    border-radius: 6px;
+}
+
+QHeaderView::section {
+    background-color: @WHITE;
+    color: @GRAY;
+    padding: 12px 15px;
+    border: none;
+    border-bottom: 2px solid @GRAY_LIGHTER;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase; /* Estilo profissional */
+}
+
+/* === LABELS DE DESTAQUE === */
+QLabel#total_label {
+    color: @PRIMARY;
+    font-size: 48px;
+    font-weight: 800;
+    font-family: 'Segoe UI', sans-serif;
+    qproperty-alignment: AlignCenter;
+}
+
+QLabel#title {
+    color: @DARK;
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+QLabel#subtitle {
+    color: @GRAY;
+    font-size: 15px;
+    margin-bottom: 24px;
+}
+
+/* === SCROLLBAR (Minimalista) === */
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 8px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: @GRAY_LIGHT;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover {
+    background: @GRAY;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* === CHECKBOX & RADIO === */
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px; /* Checkboxes levemente arredondados */
+    border: 2px solid @GRAY_LIGHT;
+    background-color: @WHITE;
+}
+
+QRadioButton::indicator {
+    border-radius: 10px; /* Redondo para radio */
+}
+
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background-color: @PRIMARY;
+    border-color: @PRIMARY;
+}
+
+/* === GROUPBOX === */
+QGroupBox {
+    background-color: @WHITE;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 12px;
+    margin-top: 1.5em; /* Espaço para o título */
+    padding-top: 15px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 10px;
+    left: 15px;
+    color: @PRIMARY;
+    font-weight: 700;
+    font-size: 14px;
+    background-color: @WHITE; /* Cobre a borda atrás do título */
+}
+
+/* === STATUS BAR === */
+/* === DASHBOARD === */
+QLabel#dashboardTitle {
+    font-size: 32px;
+    font-weight: 800;
+    color: @PRIMARY;
+    margin-bottom: 5px;
+}
+
+QLabel#dashboardSubtitle {
+    font-size: 16px;
+    color: @GRAY;
+    margin-bottom: 15px;
+}
+
+/* KPIs */
+QFrame#metricCard {
+    background-color: @GRAY_LIGHTER; /* Fundo diferente para dark */
+    border-radius: 16px;
+    border: 1px solid @GRAY_LIGHT;
+}
+
+QLabel#metricIcon {
+    font-size: 32px;
+    background-color: transparent;
+    padding: 10px;
+    border-radius: 12px;
+}
+
+QLabel#metricValue {
+    font-size: 28px;
+    font-weight: 800;
+    margin-top: 5px;
+    color: @WHITE;
+}
+
+QLabel#metricLabel {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: @GRAY;
+    letter-spacing: 0.5px;
+}
+
+/* Tabela do Dashboard */
+QTableWidget#dashboardTable {
+    background-color: transparent;
+    border: none;
+}
+QTableWidget#dashboardTable::item {
+    border-bottom: 1px solid @GRAY_LIGHT;
+    padding: 10px 5px;
+}
+
+/* Status Label */
+QLabel#dashboardStatusLabel {
+    font-size: 15px;
+    padding: 5px;
+}
+
+/* === PAYMENT DIALOG (RESTAURADO) === */
+QLabel#totalLabel {
+    color: @PRIMARY;
+    font-size: 32px;
+    font-weight: 800;
+    qproperty-alignment: AlignCenter;
+    margin: 10px 0;
+}
+
+QLabel#discountLabel {
+    font-size: 16px;
+    font-weight: 700;
+    color: @DARK;
+}
+
+QLabel#remainingLabel {
+    color: @ERROR;
+    font-size: 24px;
+    font-weight: 700;
+    margin-top: 10px;
+}
+QLabel#remainingLabel[status="warning"] {
+    color: @SECONDARY_DARK;
+}
+QLabel#remainingLabel[status="success"] {
+    color: @SUCCESS;
+}
+
+QLabel#changeLabel {
+    color: @SUCCESS;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+/* Lista de Pagamentos */
+QListWidget {
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    padding: 5px;
+    font-size: 14px;
+}
+QListWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid @GRAY_LIGHTER;
+}
+QListWidget::item:selected {
+    background-color: @PRIMARY_LIGHTEST;
+    color: @PRIMARY_DARK;
+    border-radius: 4px;
+}
+
+/* Botões de Pagamento (F1-F5) */
+QPushButton#paymentMethodButton, QPushButton#creditSaleButton {
+    background-color: @WHITE;
+    color: @DARK;
+    border: 1px solid @GRAY_LIGHT;
+    border-radius: 8px; /* Borda mais suave */
+    padding: 10px 12px; /* Padding reduzido para evitar quebra de layout */
+    font-size: 14px; /* Fonte ajustada */
+    font-weight: 600;
+    text-align: left;
+    /* Removido min-height para deixar o layout controlar */
+}
+
+QPushButton#paymentMethodButton:hover, QPushButton#creditSaleButton:hover {
+    border-color: @PRIMARY;
+    background-color: @GRAY_LIGHTER;
+}
+
+QPushButton#paymentMethodButton:checked {
+    background-color: @PRIMARY_LIGHTEST; /* Destaque visual forte */
+    border: 2px solid @PRIMARY;
+    color: @PRIMARY_DARK;
+}
+
+QPushButton#creditSaleButton {
+    color: @SECONDARY_DARK;
+    border-color: @SECONDARY;
+}
+
+/* Inputs no Dialog */
+QDoubleSpinBox#discountInput {
+    font-size: 16px;
+    padding: 5px;
+    border-radius: 6px;
+}
+
+/* Botões de Ação Inferiores */
+QPushButton#addPaymentButton {
+    background-color: @PRIMARY;
+    color: @WHITE;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 16px;
+    font-weight: 700;
+}
+QPushButton#addPaymentButton:hover {
+    background-color: @PRIMARY_LIGHT;
+}
+QPushButton#addPaymentButton:disabled {
+    background-color: @GRAY_LIGHT;
+}
+
+QPushButton#finalizeButton {
+    background-color: @SUCCESS;
+    color: @WHITE;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 16px; /* Ajuste para caber melhor */
+    font-weight: 700; 
+}
+QPushButton#finalizeButton:hover {
+    background-color: #059669; /* Verde mais escuro manually */
+    margin-top: 1px;
+}
+QPushButton#finalizeButton:disabled {
+    background-color: @GRAY_LIGHT;
+    color: @GRAY;
+}
+
+QPushButton#removePaymentButton {
+    background-color: transparent;
+    color: @ERROR;
+    border: 1px solid @ERROR;
+    border-radius: 6px;
+    padding: 8px;
+    font-weight: 600;
+}
+QPushButton#removePaymentButton:hover {
+    background-color: @ERROR;
+    color: @WHITE;
+}
+QPushButton#removePaymentButton:disabled {
+    border-color: @GRAY_LIGHT;
+    color: @GRAY_LIGHT;
+    background-color: transparent;
+}
+
+/* === SUCCESS DIALOG === */
+QDialog#successDialog {
+    background-color: @WHITE;
+    border-radius: 12px;
+}
+
+QLabel#successIcon {
+    color: @SUCCESS;
+    font-size: 64px;
+    font-weight: 900;
+    margin-bottom: 0px;
+}
+
+QLabel#successTitle {
+    color: @DARK;
+    font-size: 24px;
+    font-weight: 800;
+}
+
+QLabel#successMessage {
+    color: @GRAY;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+QPushButton#successOkButton {
+    background-color: @SUCCESS;
+    color: @WHITE;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 10px;
+}
+
+QPushButton#successOkButton:hover {
+    background-color: #059669; /* Verde um tom mais escuro */
+    margin-top: 2px;
+}
+
+QPushButton#successOkButton:pressed {
+    background-color: #047857;
+}
+
+/* === CUSTOM INPUT DIALOG === */
+QDialog#customInputDialog {
+    background-color: @WHITE;
+    border-radius: 12px;
+}
+
+QLabel#inputDialogTitle {
+    color: @PRIMARY;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+QLabel#inputDialogLabel {
+    color: @DARK;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QLineEdit#inputDialogInput {
+    border: 2px solid @GRAY_LIGHT;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 18px;
+    color: @DARK;
+}
+
+QLineEdit#inputDialogInput:focus {
+    border-color: @PRIMARY;
+}
+
+QPushButton#inputDialogOkButton {
+    background-color: @PRIMARY;
+    color: @WHITE;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 0 20px;
+}
+
+QPushButton#inputDialogOkButton:hover {
+    background-color: @PRIMARY_DARK;
+}
+
+QPushButton#inputDialogCancelButton {
+    background-color: transparent;
+    border: 2px solid @GRAY_LIGHT;
+    color: @GRAY;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 0 20px;
+}
+
+QPushButton#inputDialogCancelButton:hover {
+    background-color: #f3f4f6;
+    color: @DARK;
+    border-color: @GRAY;
+}
+
+/* === CASH CLOSING DIALOG === */
+/* Assumindo que o QDialog principal do fechamento não tem ID específico na classe ainda,
+   mas seus componentes internos terão */
+QTextEdit {
+    font-size: 14px; /* Aumenta fonte geral dos text edits */
+}
+
+/* === DASHBOARD === */
+QLabel#dashboardTitle {
+    font-size: 32px;
+    font-weight: 800;
+    color: @PRIMARY;
+    margin-bottom: 5px;
+}
+
+QLabel#dashboardSubtitle {
+    font-size: 16px;
+    color: @GRAY;
+    margin-bottom: 15px;
+}
+
+/* KPIs */
+QFrame#metricCard {
+    background-color: @WHITE;
+    border-radius: 16px;
+    border: 1px solid @GRAY_LIGHT;
+}
+
+QLabel#metricIcon {
+    font-size: 32px; /* Ícone grande */
+    background-color: transparent;
+    padding: 10px;
+    border-radius: 12px;
+}
+
+QLabel#metricValue {
+    font-size: 28px;
+    font-weight: 800;
+    margin-top: 5px;
+}
+
+QLabel#metricLabel {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: @GRAY;
+    letter-spacing: 0.5px;
+}
+
+/* Tabela do Dashboard (mais limpa) */
+QTableWidget#dashboardTable {
+    background-color: transparent;
+    border: none;
+}
+QTableWidget#dashboardTable::item {
+    border-bottom: 1px solid @GRAY_LIGHTER;
+    padding: 10px 5px;
+}
+
+/* Status Label */
+QLabel#dashboardStatusLabel {
+    font-size: 15px;
+    padding: 5px;
+}

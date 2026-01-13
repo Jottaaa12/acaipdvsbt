@@ -2,9 +2,11 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView, QDialog,
-    QFormLayout, QComboBox, QSpinBox, QTabWidget, QDialogButtonBox, QGroupBox
+    QFormLayout, QComboBox, QSpinBox, QTabWidget, QDialogButtonBox, QGroupBox,
+    QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 import stock_manager as sm
 
 # --- Diálogo para Adicionar/Editar Item ---
@@ -158,6 +160,7 @@ class StockGroupManagementWidget(QWidget):
         self.groups_combo.setCurrentIndex(0)
 
 # --- Página Principal de Gerenciamento de Estoque ---
+# --- Página Principal de Gerenciamento de Estoque ---
 class StockManagementPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -166,7 +169,7 @@ class StockManagementPage(QWidget):
 
         # Título
         title_label = QLabel("Gerenciamento de Estoque de Insumos")
-        title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title_label.setObjectName("title")
         main_layout.addWidget(title_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Seção de Gerenciamento de Grupos
@@ -174,13 +177,36 @@ class StockManagementPage(QWidget):
         self.group_manager.groups_changed.connect(self.reload_all)
         main_layout.addWidget(self.group_manager)
 
-        # Abas para cada grupo
-        self.tabs = QTabWidget()
-        self.tabs.currentChanged.connect(self._on_selection_changed) # Atualiza estado dos botões ao mudar de aba
-        main_layout.addWidget(self.tabs)
+        # Separador visual
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sep.setStyleSheet("background-color: #e5e7eb; margin: 10px 0;") # Gray light
+        main_layout.addWidget(sep)
+
+        # Filtro e Tabela
+        filter_layout = QHBoxLayout()
+        filter_label = QLabel("Filtrar por Grupo:")
+        filter_label.setObjectName("form_label")
+        self.filter_combo = QComboBox()
+        self.filter_combo.setObjectName("modern_combo")
+        self.filter_combo.addItem("Todos os Grupos", userData=None)
+        self.filter_combo.currentIndexChanged.connect(self.filter_items)
+        
+        filter_layout.addWidget(filter_label)
+        filter_layout.addWidget(self.filter_combo, 1)
+        main_layout.addLayout(filter_layout)
+
+        # Tabela Única de Itens
+        self.items_table = self.create_items_table()
+        self.items_table.itemSelectionChanged.connect(self._on_selection_changed)
+        main_layout.addWidget(self.items_table)
 
         # Painel de Ações para o item selecionado
         self.setup_actions_panel(main_layout)
+
+        # Dados em memória
+        self.all_items = []
 
         self.reload_all()
         self.update_action_buttons_state() # Estado inicial
@@ -190,21 +216,26 @@ class StockManagementPage(QWidget):
         actions_layout = QHBoxLayout(actions_group)
 
         self.add_one_btn = QPushButton("+1")
+        self.add_one_btn.setObjectName("modern_button_success") # Assuming this style exists or will fallback
         self.add_one_btn.setToolTip("Adicionar 1 unidade ao estoque do item selecionado")
         self.add_one_btn.clicked.connect(lambda: self.handle_adjust_stock(1))
 
         self.remove_one_btn = QPushButton("-1")
+        self.remove_one_btn.setObjectName("modern_button_warning") # Assuming exists or fallback
         self.remove_one_btn.setToolTip("Remover 1 unidade do estoque do item selecionado")
         self.remove_one_btn.clicked.connect(lambda: self.handle_adjust_stock(-1))
 
         self.edit_item_btn = QPushButton("Editar Item")
+        self.edit_item_btn.setObjectName("modern_button_secondary")
         self.edit_item_btn.clicked.connect(self.handle_edit_item)
 
         self.delete_item_btn = QPushButton("Excluir Item")
+        self.delete_item_btn.setObjectName("modern_button_error")
         self.delete_item_btn.clicked.connect(self.handle_delete_item)
 
         # Botão para adicionar novo item (movido para perto das ações)
         self.add_item_button = QPushButton("Adicionar Novo Item")
+        self.add_item_button.setObjectName("modern_button_primary")
         self.add_item_button.clicked.connect(self.add_item)
 
         actions_layout.addWidget(self.add_one_btn)
@@ -217,19 +248,12 @@ class StockManagementPage(QWidget):
 
         parent_layout.addWidget(actions_group)
 
-    def get_current_table(self):
-        current_widget = self.tabs.currentWidget()
-        if current_widget:
-            return current_widget.findChild(QTableWidget)
-        return None
-
     def get_selected_item_data(self):
-        table = self.get_current_table()
-        if table and table.currentItem():
-            selected_row = table.currentRow()
+        if self.items_table.currentItem():
+            selected_row = self.items_table.currentRow()
             if selected_row >= 0:
                 # Recupera o dicionário do item armazenado na primeira coluna
-                return table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
+                return self.items_table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
         return None
 
     def update_action_buttons_state(self):
@@ -244,30 +268,79 @@ class StockManagementPage(QWidget):
 
     def reload_all(self):
         self.group_manager.load_groups()
-        self.load_items_by_group()
+        self.load_filter_options()
+        self.load_all_items() # Carrega todos os dados
+        self.filter_items() # Aplica o filtro atual
         self.update_action_buttons_state()
 
-    def load_items_by_group(self):
-        self.tabs.clear()
-        all_items = sm.get_all_stock_items()
+    def load_filter_options(self):
+        current_data = self.filter_combo.currentData()
+        self.filter_combo.blockSignals(True)
+        self.filter_combo.clear()
+        self.filter_combo.addItem("Todos os Grupos", userData=None)
+        
         groups = sm.get_all_stock_groups()
-
-        group_map = {g['id']: {'name': g['nome'], 'items': []} for g in groups}
-        for item in all_items:
-            if item['grupo_id'] in group_map:
-                group_map[item['grupo_id']]['items'].append(item)
-
-        for group_id, group_data in group_map.items():
-            # Usar um QWidget como container para a aba
-            tab_content_widget = QWidget()
-            tab_layout = QVBoxLayout(tab_content_widget)
+        for group in groups:
+            self.filter_combo.addItem(group['nome'], userData=group['id'])
             
-            table = self.create_items_table(group_data['items'])
-            # Conecta o sinal de seleção da tabela à atualização dos botões
-            table.itemSelectionChanged.connect(self._on_selection_changed)
-            tab_layout.addWidget(table)
+        # Restaura seleção se possível
+        if current_data is not None:
+            index = self.filter_combo.findData(current_data)
+            if index != -1:
+                self.filter_combo.setCurrentIndex(index)
+        
+        self.filter_combo.blockSignals(False)
+
+    def load_all_items(self):
+        self.all_items = sm.get_all_stock_items()
+
+    def filter_items(self):
+        selected_group_id = self.filter_combo.currentData()
+        
+        filtered_items = []
+        if selected_group_id is None:
+            filtered_items = self.all_items
+        else:
+            filtered_items = [item for item in self.all_items if item['grupo_id'] == selected_group_id]
             
-            self.tabs.addTab(tab_content_widget, group_data['name'])
+        self.populate_table(filtered_items)
+
+    def populate_table(self, items):
+        self.items_table.setRowCount(0)
+        for row_num, item in enumerate(items):
+            self.items_table.insertRow(row_num)
+            
+            # Formatação de cores para estoque baixo
+            is_low_stock = item['estoque_atual'] <= item['estoque_minimo']
+            text_color = QColor("#ef4444") if is_low_stock else None # Red for low stock warning
+            
+            # Código
+            code_item = QTableWidgetItem(item['codigo'])
+            code_item.setData(Qt.ItemDataRole.UserRole, item) # Store Data here
+            if text_color: code_item.setForeground(text_color)
+            self.items_table.setItem(row_num, 0, code_item)
+
+            # Nome
+            nome_item = QTableWidgetItem(item['nome'])
+            if text_color: nome_item.setForeground(text_color)
+            self.items_table.setItem(row_num, 1, nome_item)
+
+            # Estoque Atual
+            atual_item = QTableWidgetItem(str(item['estoque_atual']))
+            if text_color: atual_item.setForeground(text_color)
+            self.items_table.setItem(row_num, 2, atual_item)
+
+            # Estoque Mínimo
+            min_item = QTableWidgetItem(str(item['estoque_minimo']))
+            if text_color: min_item.setForeground(text_color)
+            self.items_table.setItem(row_num, 3, min_item)
+
+            # Unidade
+            un_item = QTableWidgetItem(item['unidade_medida'])
+            if text_color: un_item.setForeground(text_color)
+            self.items_table.setItem(row_num, 4, un_item)
+
+        self.items_table.resizeColumnsToContents()
 
     def handle_adjust_stock(self, amount):
         item = self.get_selected_item_data()
@@ -275,9 +348,14 @@ class StockManagementPage(QWidget):
             return
 
         new_quantity = item['estoque_atual'] + amount
+        # Ensure non-negative
+        if new_quantity < 0:
+            QMessageBox.warning(self, "Ação Inválida", "O estoque não pode ser negativo.")
+            return
+
         success, message = sm.adjust_stock_quantity(item['codigo'], new_quantity)
         if success:
-            self.reload_all()
+            self.reload_all() # Poderia otimizar e apenas atualizar a linha, mas reload é seguro
         else:
             QMessageBox.warning(self, "Erro", message)
 
@@ -293,8 +371,9 @@ class StockManagementPage(QWidget):
             return
         self.delete_item(item)
 
-    def create_items_table(self, items):
+    def create_items_table(self):
         table = QTableWidget()
+        table.setObjectName("table") # Uses global style or specific
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["Código", "Nome", "Estoque Atual", "Estoque Mínimo", "Unidade"])
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -303,19 +382,6 @@ class StockManagementPage(QWidget):
         
         header = table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-
-        for row_num, item in enumerate(items):
-            table.insertRow(row_num)
-            table.setItem(row_num, 0, QTableWidgetItem(item['codigo']))
-            table.setItem(row_num, 1, QTableWidgetItem(item['nome']))
-            table.setItem(row_num, 2, QTableWidgetItem(str(item['estoque_atual'])))
-            table.setItem(row_num, 3, QTableWidgetItem(str(item['estoque_minimo'])))
-            table.setItem(row_num, 4, QTableWidgetItem(item['unidade_medida']))
-            
-            # Armazena o dicionário completo do item na primeira coluna para fácil acesso
-            table.item(row_num, 0).setData(Qt.ItemDataRole.UserRole, item)
-
-        table.resizeColumnsToContents()
         return table
 
     def add_item(self):
@@ -323,7 +389,6 @@ class StockManagementPage(QWidget):
         if dialog.exec():
             data = dialog.get_data()
             
-            # Validação explícita para melhor feedback ao usuário
             if not data.get('codigo') or not data.get('nome') or not data.get('unidade_medida'):
                 QMessageBox.warning(self, "Campos Incompletos", "Os campos 'Código', 'Nome' e 'Unidade' são obrigatórios.")
                 return
@@ -332,7 +397,6 @@ class StockManagementPage(QWidget):
                 QMessageBox.warning(self, "Grupo Inválido", "Nenhum grupo foi selecionado. Por favor, crie um grupo antes de adicionar um item.")
                 return
             
-            # Remove a chave 'id' que é None ao adicionar um novo item
             add_data = {k: v for k, v in data.items() if k != 'id'}
 
             success, message = sm.add_stock_item(**add_data)

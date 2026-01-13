@@ -195,6 +195,12 @@ class WhatsAppConfig:
             result['valid'] = True
             result['normalized'] = phone_str
             return result
+            
+        # Se for um LID (Linked Device ID), também consideramos válido como está.
+        if 'lid' in phone_str.lower() or phone_str.endswith('@lid'):
+            result['valid'] = True
+            result['normalized'] = phone_str
+            return result
 
         # Para outros JIDs (ex: @s.whatsapp.net, @lid), extraímos a parte numérica
         number_part = phone_str.split('@')[0]

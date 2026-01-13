@@ -21,6 +21,9 @@ from data.sale_repository import *
 from data.user_repository import *
 from data.settings_repository import *
 
+# Alias para compatibilidade
+load_config = load_setting
+
 # Funções que não se encaixam em outros módulos (se houver alguma restante)
 # ...
 

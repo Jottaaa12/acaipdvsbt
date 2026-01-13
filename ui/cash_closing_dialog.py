@@ -25,7 +25,11 @@ class CashClosingDialog(QDialog):
 
         self.setWindowTitle("Fechamento de Caixa")
         self.setModal(True)
-        self.setMinimumWidth(500)
+        self.setWindowTitle("Fechamento de Caixa")
+        self.setModal(True)
+        self.setWindowTitle("Fechamento de Caixa")
+        self.setModal(True)
+        self.resize(800, 600) # Ajustado para um tamanho seguro que cabe na maioria das telas
 
         self.setup_ui()
         self.load_expected_values()
@@ -81,7 +85,9 @@ class CashClosingDialog(QDialog):
 
         self.final_report_display = QTextEdit()
         self.final_report_display.setReadOnly(True)
-        self.final_report_display.setFont(QFont("Courier New", 10))
+        self.final_report_display = QTextEdit()
+        self.final_report_display.setReadOnly(True)
+        self.final_report_display.setFont(QFont("Courier New", 12)) # Fonte aumentada para melhor leitura
         layout.addWidget(self.final_report_display)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -167,7 +173,7 @@ class CashClosingDialog(QDialog):
 
         self.counting_widget.setVisible(False)
         self.report_widget.setVisible(True)
-        self.adjustSize()
+        # self.adjustSize() # Removido para manter o tamanho grande da janela
 
     def generate_report_text(self, counted_cash, difference, observations):
         s_info = self.expected_summary['session_info']
@@ -201,13 +207,20 @@ class CashClosingDialog(QDialog):
         else:
             credit_payments_lines = "Nenhum pagamento de fiado recebido no dia.\n"
 
-        other_sales_header = "VENDAS (OUTRAS FORMAS)".center(50, '-')
-        other_sales_lines = ""
+        # NOVA SEÇÃO: VENDAS POR FORMA DE PAGAMENTO (INCLUINDO DINHEIRO)
+        sales_methods_header = "VENDAS POR FORMA DE PAGAMENTO".center(50, '-')
+        sales_methods_lines = ""
+        
+        # Adiciona dinheiro explicitamente
+        sales_methods_lines += f"{'Dinheiro'.ljust(25)} {format_currency(self.expected_summary['cash_sales']).rjust(24)}\n"
+        
         if self.expected_summary['other_sales']:
             for method, total in self.expected_summary['other_sales'].items():
-                other_sales_lines += f"{method.ljust(25)} {format_currency(total).rjust(24)}\n"
-        else:
-            other_sales_lines = "Nenhuma venda em outras formas de pagamento.\n"
+                sales_methods_lines += f"{method.ljust(25)} {format_currency(total).rjust(24)}\n"
+        
+        # Se não houver outras vendas, apenas dinheiro aparecerá. 
+        # Se dinheiro for zero e outras vendas também, mostra mensagem padrão? 
+        # Não, melhor mostrar Zero mesmo para ficar claro.
 
         new_credit_sales_header = "FIADOS CRIADOS NO DIA (A RECEBER)".center(50, '-')
         new_credit_sales_lines = ""
@@ -251,8 +264,8 @@ class CashClosingDialog(QDialog):
             f"{summary_lines}"
             f"{credit_payments_header}\n"
             f"{credit_payments_lines}\n"
-            f"{other_sales_header}\n"
-            f"{other_sales_lines}\n"
+            f"{sales_methods_header}\n"
+            f"{sales_methods_lines}\n"
             f"{new_credit_sales_header}\n"
             f"{new_credit_sales_lines}\n"
             f"{all_pending_credit_header}\n"
@@ -261,7 +274,7 @@ class CashClosingDialog(QDialog):
             f"{grand_total_lines}\n"
             f"{obs_header}\n"
             f"{obs_text}\n"
-            f"{ '='*50}\n"
+            f"{'='*50}\n"
         )
 
     def confirm_and_emit(self):
@@ -281,4 +294,4 @@ class CashClosingDialog(QDialog):
         """Volta para a tela de contagem para corrigir ou revisar."""
         self.report_widget.setVisible(False)
         self.counting_widget.setVisible(True)
-        self.adjustSize()
+        # self.adjustSize() # Removido para manter o tamanho consistente

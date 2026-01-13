@@ -21,7 +21,32 @@ class QtLogHandler(logging.Handler, QObject):
         Este método é chamado automaticamente pelo sistema de logging sempre que uma
         mensagem precisa ser processada pelo handler.
         """
-        # 'format' transforma o objeto de log 'record' na string final.
-        msg = self.format(record)
-        # Emite o sinal com a mensagem para qualquer slot conectado.
-        self.log_updated.emit(msg)
+        try:
+            # Verifica se o objeto C++ subjacente ainda existe
+            # Isso evita crash quando o logging tenta flushar após o término do QApplication
+            import sip
+            if sip.isdeleted(self):
+                return
+        except ImportError:
+            # Se sip não estiver disponível (PyQt6 as vezes usa outra forma), 
+            # tentamos acessar um atributo segura
+            try:
+                self.objectName()
+            except RuntimeError:
+                return
+
+        try:
+            # 'format' transforma o objeto de log 'record' na string final.
+            msg = self.format(record)
+            # Emite o sinal com a mensagem para qualquer slot conectado.
+            self.log_updated.emit(msg)
+        except (RuntimeError, Exception):
+            # Ignora erros de emissão durante o shutdown
+            pass
+
+    def close(self):
+        """
+        Remove o handler e desconecta sinais para fechamento limpo.
+        """
+        self.log_updated.disconnect()
+        super().close()

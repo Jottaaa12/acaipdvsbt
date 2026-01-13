@@ -421,7 +421,8 @@ class WhatsAppSalesNotifier:
             import database as db
             config = db.load_config()
             return config.get('store', {}).get('name', 'PDV')
-        except:
+        except Exception as e:
+            logging.debug(f"Erro ao obter nome da loja: {e}")
             return 'PDV'
 
     # Métodos para configuração das notificações
